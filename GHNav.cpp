@@ -39,20 +39,7 @@ namespace cpoz
     constexpr double CONV_RAD2DEG = 180.0 / CV_PI;
     constexpr double CONV_DEG2RAD = CV_PI / 180.0;
 
-    // cheap COTS LIDAR:  8000 samples/s, 2Hz-10Hz ???
 
-    class cmpPtByXY
-    {
-    public:
-        bool operator()(const cv::Point& a, const cv::Point& b) const
-        {
-            if (a.x == b.x)
-                return a.y < b.y;
-            return a.x < b.x;
-        }
-    };
-
-    
     uint8_t GHNav::convert_xy_to_angcode(int x, int y, uint8_t ct)
     {
         // convert X,Y to angle in degrees (0-360)
@@ -75,6 +62,7 @@ namespace cpoz
     void GHNav::plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist)
     {
         // Bresenham Line Algorithm from Wikipedia
+        
         int dx = abs(pt1.x - pt0.x);
         int sx = (pt0.x < pt1.x) ? 1 : -1;
         int dy = -abs(pt1.y - pt0.y);
@@ -103,7 +91,7 @@ namespace cpoz
         }
 
 #if 0
-        // pt1 can be appended here if drawing
+        // pt1 can be appended here if desired
         rlist.push_back(pt1);
 #endif
     }
@@ -115,12 +103,10 @@ namespace cpoz
         m_scan_ang_max(170.0),
         m_scan_ang_step(1.0),               // 1 degree between each measurement
         m_scan_max_rng(1200.0),             // 12m max range from LIDAR
-        slam_loc({ 0, 0 }),
-        slam_ang(0.0),
         m_search_angcode_ct(8),
         m_search_ang_ct(360),               // 360 degree search
         m_search_ang_step(1.0),             // 1 degree between each search step
-        m_search_bin_decim(1),
+        m_search_resize(0.25),
         m_accum_img_halfdim(20),
         m_accum_bloom_k(0)
     {
@@ -140,7 +126,7 @@ namespace cpoz
     
     GHNav::~GHNav()
     {
-        // does nothing
+        // nothing to do here
     }
 
 
@@ -177,7 +163,6 @@ namespace cpoz
 
     void GHNav::convert_scan_to_pts(
         std::vector<cv::Point>& rvpts,
-        cv::Rect& rbbox,
         const std::vector<double>& rscan,
         const size_t offset_index,
         const double resize)
@@ -185,40 +170,27 @@ namespace cpoz
         // look up the desired cos and sin table
         std::vector<Point2d>& rveccs = m_scan_cos_sin[offset_index];
         
-        rvpts.resize(rscan.size());
-
-        Point ptmin = { INT_MAX, INT_MAX };
-        Point ptmax = { INT_MIN, INT_MIN };
-
         // project all measurements using ideal measurement angles
         // also determine bounds of the X,Y coordinates
+        rvpts.resize(rscan.size());
         for (size_t nn = 0; nn < rvpts.size(); nn++)
         {
             double mag = rscan[nn] * resize;
             int dx = static_cast<int>((rveccs[nn].x * mag) + 0.5);
             int dy = static_cast<int>((rveccs[nn].y * mag) + 0.5);
             rvpts[nn] = { dx, dy };
-
-            ptmax.x = max(ptmax.x, dx);
-            ptmin.x = min(ptmin.x, dx);
-            ptmax.y = max(ptmax.y, dy);
-            ptmin.y = min(ptmin.y, dy);
         }
-
-        // set bounding box around projected points
-        rbbox = Rect(ptmin, ptmax);
     }
 
 
     void GHNav::preprocess_scan(
         tListPreProc& rlist,
-        cv::Rect& rbbox,
         const std::vector<double>& rscan,
         const size_t offset_index,
         const double resize)
     {
         std::vector<Point> vpts;
-        convert_scan_to_pts(vpts, rbbox, rscan, offset_index, resize);
+        convert_scan_to_pts(vpts, rscan, offset_index, resize);
 
         const int dthr = static_cast<int>(m_scan_len_thr * m_scan_len_thr * resize);
 
@@ -250,30 +222,43 @@ namespace cpoz
         cv::Mat& rimg,
         cv::Point& rpt0,
         const GHNav::tListPreProc& rlist,
-        const cv::Rect& rbbox,
         const int shrink)
     {
+        // collect all points
+        std::vector<Point> vpts;
+        for (const auto& r : rlist)
+        {
+            for (const auto& rr : r.line)
+            {
+                vpts.push_back(rr);
+            }
+        }
+
+        // get bounding box around all points
+        Rect bbox = boundingRect(vpts);
+
         // create image same size as bounding box along with some padding
         Size imgsz = Size(
-            (rbbox.width / shrink) + (2 * PAD_BORDER),
-            (rbbox.height / shrink) + (2 * PAD_BORDER));
+            (bbox.width / shrink) + (2 * PAD_BORDER),
+            (bbox.height / shrink) + (2 * PAD_BORDER));
         rimg = Mat::zeros(imgsz, CV_8UC1);
 
+        // shift points to fit in image and draw dot at each point
         for (const auto& r : rlist)
         {
             for (const auto& rr : r.line)
             {
                 Point ptnew = {
-                    ((rr.x - rbbox.x) / shrink) + PAD_BORDER,
-                    ((rr.y - rbbox.y) / shrink) + PAD_BORDER };
+                    ((rr.x - bbox.x) / shrink) + PAD_BORDER,
+                    ((rr.y - bbox.y) / shrink) + PAD_BORDER };
                 rimg.at<uint8_t>(ptnew) = 255;
             }
         }
 
-        // finally note the sensing point in the scan image
+        // finally note the central point of the scan in the scan image
         rpt0 = {
-            ((0 - rbbox.x) / shrink) + PAD_BORDER,
-            ((0 - rbbox.y) / shrink) + PAD_BORDER };
+            ((0 - bbox.x) / shrink) + PAD_BORDER,
+            ((0 - bbox.y) / shrink) + PAD_BORDER };
     }
 
 
@@ -283,7 +268,7 @@ namespace cpoz
         m_vtemplates.resize(m_search_ang_ct);
         for (size_t ii = 0; ii < m_search_ang_ct; ii++)
         {
-            preprocess_scan(m_vtemplates[ii].list_preproc, m_vtemplates[ii].bbox, rscan, ii);
+            preprocess_scan(m_vtemplates[ii].list_preproc, rscan, ii, m_search_resize);
             m_vtemplates[ii].lookup.resize(m_search_angcode_ct);
             for (const auto& r : m_vtemplates[ii].list_preproc)
             {
@@ -302,13 +287,12 @@ namespace cpoz
         double& rang)
     {
         tListPreProc list_preproc;
-        cv::Rect bbox;
 
         const int BLOOM_PAD = m_accum_img_halfdim + m_accum_bloom_k;
         const Point boo = { BLOOM_PAD, BLOOM_PAD };
         
         // use 0 angle
-        preprocess_scan(list_preproc, bbox, rscan, 0);
+        preprocess_scan(list_preproc, rscan, 0, m_search_resize);
 
         size_t qjjmax = 0U;
         double qallmax = 0.0;

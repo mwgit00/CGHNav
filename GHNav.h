@@ -45,7 +45,6 @@ namespace cpoz
         typedef struct
         {
             tListPreProc list_preproc;
-            cv::Rect bbox;
             std::vector<std::list<cv::Point>> lookup;
         } T_TEMPLATE;
 
@@ -75,23 +74,20 @@ namespace cpoz
 
         void convert_scan_to_pts(
             std::vector<cv::Point>& rvec,
-            cv::Rect& rbbox,
             const std::vector<double>& rscan,
             const size_t offset_index,
             const double resize);
 
         void preprocess_scan(
             tListPreProc& rlist,
-            cv::Rect& rbbox,
             const std::vector<double>& rscan,
             const size_t offset_index,
-            const double resize = 0.25);
+            const double resize);
 
         void draw_preprocessed_scan(
             cv::Mat& rimg,
             cv::Point& rpt0,
             const GHNav::tListPreProc& rlist,
-            const cv::Rect& rbbox,
             const int shrink = 1);
 
         void update_match_templates(const std::vector<double>& rscan);
@@ -113,32 +109,26 @@ namespace cpoz
         int m_accum_img_fulldim;
         int m_accum_bloom_k;
 
-        //cv::Mat m_img_template_ang_0;   // 0 degree match template for display
         cv::Point m_pt0_template_ang_0; // center of 0 degree match template for display
 
         std::list<T_WAYPOINT> m_waypoints;
-        std::list<cv::Point> m_allpts;
 
     public:
 
-        size_t m_scan_ang_ct;   ///< number of angles (elements) in a LIDAR scan
-        double m_scan_ang_min;  ///< negative angle from 0 (front)
-        double m_scan_ang_max;  ///< positive angle from 0 (front)
-        double m_scan_ang_step; ///< step between angles in LIDAR scan
-        double m_scan_max_rng;  ///< max range possible from LIDAR
+        size_t m_scan_ang_ct;           ///< number of angles (elements) in a LIDAR scan
+        double m_scan_ang_min;          ///< negative angle from 0 (front)
+        double m_scan_ang_max;          ///< positive angle from 0 (front)
+        double m_scan_ang_step;         ///< step between angles in LIDAR scan
+        double m_scan_max_rng;          ///< max range possible from LIDAR
         double m_scan_len_thr;
 
-        cv::Point slam_loc; ///< calculated position
-        double slam_ang;    ///< calculated heading
-
-        uint8_t m_search_angcode_ct;       ///< number of angle codes to use
-
-        size_t m_search_ang_ct;
-        double m_search_ang_step;
-
-        size_t m_search_bin_decim;  ///< decimation step size for search
+        uint8_t m_search_angcode_ct;    ///< number of angle codes to use
+        size_t m_search_ang_ct;         ///< number of angles in 360 degree search
+        double m_search_ang_step;       ///< angle step in 360 degree search
+        double m_search_resize;         ///< resize (shrink) factor
 
         std::vector<double> m_scan_angs;    ///< ideal scan angles
+        
         std::vector<std::vector<cv::Point2d>> m_scan_cos_sin; ///< ideal cos and sin for scan angles
 
         std::vector<cv::Point> tpt0_offset;         ///< center points for all templates

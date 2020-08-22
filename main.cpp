@@ -91,7 +91,6 @@ bool wait_and_check_keys(const int delay_ms = 1)
             switch (ckey)
             {
             case 'r': is_rec_enabled = !is_rec_enabled; std::cout << "REC\n"; break;
-                //case 'l': is_loc_enabled = !is_loc_enabled; std::cout << "LOC\n"; break;
             case '1':
             {
                 // noiseless LIDAR
@@ -123,12 +122,22 @@ bool wait_and_check_keys(const int delay_ms = 1)
             case 's': theRobot.set_vLR({ -avel3, avel3 }); break;
             case 'd': theRobot.set_vLR({ -avel2, avel2 }); break;
             case 'f': theRobot.set_vLR({ -avel1, avel1 }); break;
-            case 'g': theRobot.set_vLR({ avelf, avelf }); break;
+            case 'g':
+            case '\'':
+            {
+                theRobot.set_vLR({ avelf, avelf });
+                break;
+            }
             case 'h': theRobot.set_vLR({ avel1, -avel1 }); break;
             case 'j': theRobot.set_vLR({ avel2, -avel2 }); break;
             case 'k': theRobot.set_vLR({ avel3, -avel3 }); break;
             case 'l': theRobot.set_vLR({ avel4, -avel4 }); break;
-            case 'b': theRobot.set_vLR({ 0.0, 0.0 }); break;
+            case 'b':
+            case ';':
+            {
+                theRobot.set_vLR({ 0.0, 0.0 });
+                break;
+            }
             case '[': theRobot.accel({ -0.2, 0.0 }, avelf); break;
             case ']': theRobot.accel({ 0.0, -0.2 }, avelf); break;
             case '=': is_resync = true; break;
@@ -169,6 +178,8 @@ void loop(void)
     int ticker = 0;
 
     cpoz::GHNav ghnav;
+    Point match_offset = { 0, 0 };
+    double match_angle = 0.0;
 
     // various starting positions in default floorplan
     std::vector<Point2d> vhomepos;
@@ -195,38 +206,66 @@ void loop(void)
         // handle keyboard events and end when ESC is pressed
         is_running = wait_and_check_keys(25);
 
-        theRobot.update();
-
         if (is_rehome)
         {
             // one-shot keypress
             is_rehome = false;
 
             // reset offset for drawing map info
-            pt_drawing_offset = {
-                static_cast<int>(vhomepos[iivhomepos].x),
-                static_cast<int>(vhomepos[iivhomepos].y) };
-
             // stop robot and put it at new position and orientation
+            // will need to resync to new position
+            pt_drawing_offset = vhomepos[iivhomepos];
             theRobot.set_vLR({ 0.0, 0.0 });
             theRobot.set_xypos_ang(vhomepos[iivhomepos], 0.0);
+            is_resync = true;
 
             iivhomepos++;
             if (iivhomepos == vhomepos.size()) iivhomepos = 0;
         }
 
+        // determine robot's new position and heading
+        theRobot.update();
+
+        // robot has a new position so take a new LIDAR scan...
         theLidar.set_world_pos(theRobot.get_xypos());
         theLidar.set_world_ang(theRobot.get_ang());
         theLidar.run_scan();
 
+        if (is_resync)
+        {
+            // apply latest scan as new waypoint
+            ghnav.update_match_templates(theLidar.get_last_scan());
+            is_resync = false;
+        }
+
+        // check match against the current waypoint
+        ghnav.perform_match(theLidar.get_last_scan(), match_offset, match_angle);
+
+        // now update the screen view...
+        
         // init image output with source floorplan (gray)
         img_orig.copyTo(img_viewer);
+
+        // preprocess the scan for drawing
+        cpoz::GHNav::tListPreProc list_preproc;
+        ghnav.preprocess_scan(list_preproc, theLidar.get_last_scan(), 0, 0.25);
+
+        // draw "snapshot" image of current LIDAR scan (gray)
+        Mat img_current_scan;
+        Point img_current_scan_pt0;
+        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, list_preproc);
+        Rect mroi = { {0,0}, img_current_scan.size() };
+        img_current_scan.copyTo(img_viewer(mroi));
 
         // switch to BGR...
         cvtColor(img_viewer, img_viewer_bgr, COLOR_GRAY2BGR);
 
         // draw LIDAR scan lines over floorplan
         theLidar.draw_last_scan(img_viewer_bgr, SCA_DKGRAY);
+
+        // draw robot position and direction in LIDAR scan in upper left
+        circle(img_viewer_bgr, img_current_scan_pt0, 3, SCA_GREEN, -1);
+        line(img_viewer_bgr, img_current_scan_pt0, img_current_scan_pt0 + Point{ 10, 0 }, SCA_GREEN, 1);
 
         // draw robot in floorplan
         const int r = theRobot.get_radius();
@@ -245,6 +284,13 @@ void loop(void)
             oss << " IMG:XY@ = " << std::setw(4) << ibotpos.x << ", " << ibotpos.y;
             oss << "  " << std::fixed << std::setprecision(1) << theRobot.get_ang();
             putText(img_viewer_bgr, oss.str(), { 0, 360 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLACK, 2);
+        }
+
+        {
+            std::ostringstream oss;
+            oss << " MATCH = " << std::setw(4) << match_offset.x << ", " << match_offset.y;
+            oss << "  " << std::fixed << std::setprecision(1) << match_angle;
+            putText(img_viewer_bgr, oss.str(), { 0, 385 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
         }
 
         // show the BGR image
