@@ -146,10 +146,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="FakeLidar.cpp" />
+    <ClCompile Include="GHNav.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="FakeRobot.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FakeLidar.h" />
+    <ClInclude Include="GHNav.h" />
+    <ClInclude Include="FakeRobot.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

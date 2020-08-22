@@ -21,9 +21,21 @@
     <ClCompile Include="FakeLidar.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GHNav.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FakeRobot.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FakeLidar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GHNav.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FakeRobot.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
