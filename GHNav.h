@@ -32,7 +32,42 @@ namespace cpoz
     {
     public:
 
-        
+        typedef struct _T_SCAN_PARAMS_struct
+        {
+            size_t ang_ct;          ///< number of angles (elements) in a LIDAR scan
+            double ang_step;        ///< step between angles in LIDAR scan
+            double ang_min;         ///< negative angle from 0 (front)
+            double ang_max;         ///< positive angle from 0 (front)
+            double max_rng;         ///< max range possible from LIDAR
+            _T_SCAN_PARAMS_struct() :
+                ang_ct(341),        ///< 340 degree scan (-170 to 170 with 1 degree step)
+                ang_step(1.0),      ///< 1 degree between each measurement
+                ang_min(-170.0),    ///< for 20 degree blind spot behind robot (testing)
+                ang_max(170.0),     ///< for 20 degree blind spot behind robot (testing)
+                max_rng(1200.0)     ///< 12m max LIDAR range
+            {}
+        } T_SCAN_PARAMS;
+
+
+        typedef struct _T_MATCH_PARAMS_struct
+        {
+            size_t ang_ct;          ///< number of angles in 360 degree search
+            double ang_step;        ///< angle step in 360 degree search
+            double resize;          ///< resize (shrink) factor
+            double resize_big;      ///< resize (shrink) factor for big templates
+            uint8_t angcode_ct;     ///< number of angle codes to use
+            int acc_halfdim;        ///< half dimension of Hough accumulator bin image
+            _T_MATCH_PARAMS_struct() :
+                ang_ct(360),        // search through full 360 degrees
+                ang_step(1.0),      // 1 degree between each search step
+                resize(0.125),      // shrink factor for rotation angle match
+                resize_big(0.5),    // srhink factor for final translation match
+                angcode_ct(8),      // 8 angle codes is good starting point
+                acc_halfdim(20)     // bigger values slow down matching process
+            {}
+        } T_MATCH_PARAMS;
+
+
         typedef struct
         {
             uint8_t angcode;
@@ -49,15 +84,6 @@ namespace cpoz
         
         typedef std::vector<std::vector<cv::Point>> T_TEMPLATE;
 
-        
-        typedef struct
-        {
-            cv::Point pt;               ///< best-guess location of scan
-            double ang;                 ///< best-guress orientation of scan
-            std::vector<double> scan;   ///< original scan data
-        } T_WAYPOINT;
-
-
         static uint8_t convert_xy_to_angcode(int x, int y, uint8_t ct);
         
         static void plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist);
@@ -66,12 +92,11 @@ namespace cpoz
         GHNav();
         virtual ~GHNav();
 
-        void init_scan_angs(void);
+        T_SCAN_PARAMS& get_scan_params(void) { return m_scan_params; }
+        T_MATCH_PARAMS& get_match_params(void) { return m_match_params; }
 
-        size_t get_scan_ang_ct(void) const { return m_scan_ang_ct; }
-        uint8_t get_angcode_ct(void) const { return m_search_angcode_ct; }
-        double get_search_resize(void) const { return m_search_resize; }
-        
+        void init(void);
+
         const std::vector<double>& get_scan_angs(void) const { return m_scan_angs; }
 
         void preprocess_scan(
@@ -93,11 +118,9 @@ namespace cpoz
             cv::Point& roffset,
             double& rang);
 
-        void add_waypoint(GHNav::T_WAYPOINT& rwp);
-
-        const std::list<GHNav::T_WAYPOINT>& get_waypoints(void) const { return m_waypoints; }
-
     private:
+
+        void init_scan_angs(void);
 
         void convert_scan_to_pts(
             std::vector<cv::Point>& rvec,
@@ -113,7 +136,6 @@ namespace cpoz
             const T_TEMPLATE& rtemplate,
             const int acc_dim,
             const int acc_halfdim,
-            const int acc_bloomdim,
             const T_PREPROC& rpreproc,
             cv::Mat& rimg_acc,
             cv::Point& rmaxpt,
@@ -123,26 +145,17 @@ namespace cpoz
 
         cv::Mat m_img_acc;
         cv::Point m_img_acc_pt;
-        int m_acc_halfdim;
-        int m_acc_fulldim;
-        int m_acc_bloomdim;
-
-        std::list<T_WAYPOINT> m_waypoints;
 
     private:
 
-        size_t m_scan_ang_ct;           ///< number of angles (elements) in a LIDAR scan
-        double m_scan_ang_min;          ///< negative angle from 0 (front)
-        double m_scan_ang_max;          ///< positive angle from 0 (front)
-        double m_scan_ang_step;         ///< step between angles in LIDAR scan
-        double m_scan_max_rng;          ///< max range possible from LIDAR
-        double m_scan_rng_thr;
+        T_SCAN_PARAMS m_scan_params;
+        T_MATCH_PARAMS m_match_params;
 
-        uint8_t m_search_angcode_ct;    ///< number of angle codes to use
-        size_t m_search_ang_ct;         ///< number of angles in 360 degree search
-        double m_search_ang_step;       ///< angle step in 360 degree search
-        double m_search_resize;         ///< resize (shrink) factor
-        double m_search_resize_big;     ///< resize (shrink) factor for big templates
+        int m_acc_fulldim;      ///< accumulator bin image size calculated from match params
+        int m_acc_halfdim_big;  ///< "big" accumulator bin image half-size calculated from match params
+        int m_acc_fulldim_big;  ///< "big" accumulator bin image size calculated from match params
+
+        double m_scan_rng_thr;  ///< "closeness" threshold calculated from scan params
 
         std::vector<double> m_scan_angs;    ///< ideal scan angles
         

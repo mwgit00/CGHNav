@@ -46,6 +46,7 @@ using namespace cv;
 #define SCA_GREEN   (cv::Scalar(0,255,0))
 #define SCA_YELLOW  (cv::Scalar(0,255,255))
 #define SCA_BLUE    (cv::Scalar(255,0,0))
+#define SCA_CYAN    (cv::Scalar(255,255,0))
 #define SCA_WHITE   (cv::Scalar(255,255,255))
 #define SCA_DKGRAY  (cv::Scalar(64,64,64))
 
@@ -189,12 +190,14 @@ void loop(void)
     Mat img_orig;
     Mat img_viewer;
     Mat img_viewer_bgr;
-    Point pt_drawing_offset;
-    int ticker = 0;
 
     cpoz::GHNav ghnav;
     Point match_offset = { 0, 0 };
     double match_angle = 0.0;
+    
+    Point home_pos;
+    Point2d home_ang_vec;
+    double home_ang;
 
     // various starting positions in default floorplan
     std::vector<Point2d> vhomepos;
@@ -207,7 +210,6 @@ void loop(void)
     vhomepos.push_back({ 1180.0, 440.0 });
     size_t iivhomepos = 0;
 
-    ghnav.init_scan_angs();
     theLidar.set_scan_angs(ghnav.get_scan_angs());
     theLidar.load_floorplan(".\\docs\\apt_1cmpp_720p.png");
 
@@ -226,10 +228,8 @@ void loop(void)
             // one-shot keypress
             is_rehome = false;
 
-            // reset offset for drawing map info
             // stop robot and put it at new position and orientation
             // will need to resync to new position
-            pt_drawing_offset = vhomepos[iivhomepos];
             theRobot.set_vLR({ 0.0, 0.0 });
             theRobot.set_xypos_ang(vhomepos[iivhomepos], 0.0);
             is_resync = true;
@@ -249,6 +249,9 @@ void loop(void)
         if (is_resync)
         {
             // apply latest scan as new waypoint
+            home_pos = theRobot.get_xypos();
+            home_ang = theRobot.get_ang();
+            home_ang_vec = theRobot.get_ang_vec();
             ghnav.update_match_templates(theLidar.get_last_scan());
             is_resync = false;
         }
@@ -262,8 +265,9 @@ void loop(void)
         img_orig.copyTo(img_viewer);
 
         // preprocess the scan for drawing
+        double scale_fac = ghnav.get_match_params().resize;
         cpoz::GHNav::T_PREPROC preproc;
-        ghnav.preprocess_scan(preproc, theLidar.get_last_scan(), 0, ghnav.get_search_resize());
+        ghnav.preprocess_scan(preproc, theLidar.get_last_scan(), 0, scale_fac);
 
         // draw "snapshot" image of current LIDAR scan (gray)
         Mat img_current_scan;
@@ -277,6 +281,14 @@ void loop(void)
 
         // draw LIDAR scan lines over floorplan
         theLidar.draw_last_scan(img_viewer_bgr, SCA_DKGRAY);
+
+        // draw current home
+        {
+            circle(img_viewer_bgr, home_pos, 5, SCA_CYAN, -1);
+            int angx = static_cast<int>(home_ang_vec.x * 12.0);
+            int angy = static_cast<int>(home_ang_vec.y * 12.0);
+            line(img_viewer_bgr, home_pos, home_pos + Point{ angx, angy }, SCA_CYAN, 2);
+        }
 
         // draw robot position and direction in LIDAR scan in upper left
         circle(img_viewer_bgr, img_current_scan_pt0, 3, SCA_GREEN, -1);
@@ -302,13 +314,15 @@ void loop(void)
         }
 
         {
+            // print latest position and orientation match
             std::ostringstream oss;
             oss << " MATCH = " << std::setw(4) << match_offset.x << ", " << match_offset.y;
             oss << "  " << std::fixed << std::setprecision(1) << match_angle;
             putText(img_viewer_bgr, oss.str(), { 0, 430 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
         }
 
-        // show image of the Hough bins but scaled and equalized to make it pretty
+        // show image of the Hough bins
+        // scale values and equalize to make it pretty
         Mat img_acc;
         Mat img_acc8;
         Mat img_acc8_bgr;
@@ -317,7 +331,7 @@ void loop(void)
         equalizeHist(img_acc8, img_acc8);
         cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
         circle(img_acc8_bgr, ghnav.m_img_acc_pt, 2, { 0,0,255 }, -1);
-        Rect mroix = { { 25, 460 }, Size(ghnav.m_acc_fulldim, ghnav.m_acc_fulldim) };
+        Rect mroix = { { 25, 460 }, img_acc8_bgr.size() };
         img_acc8_bgr.copyTo(img_viewer_bgr(mroix));
 
         // show the BGR image
