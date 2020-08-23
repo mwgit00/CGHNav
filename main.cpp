@@ -247,13 +247,13 @@ void loop(void)
         img_orig.copyTo(img_viewer);
 
         // preprocess the scan for drawing
-        cpoz::GHNav::tListPreProc list_preproc;
-        ghnav.preprocess_scan(list_preproc, theLidar.get_last_scan(), 0, 0.25);
+        cpoz::GHNav::T_PREPROC preproc;
+        ghnav.preprocess_scan(preproc, theLidar.get_last_scan(), 0, ghnav.get_search_resize());
 
         // draw "snapshot" image of current LIDAR scan (gray)
         Mat img_current_scan;
         Point img_current_scan_pt0;
-        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, list_preproc);
+        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc);
         Rect mroi = { {0,0}, img_current_scan.size() };
         img_current_scan.copyTo(img_viewer(mroi));
 
@@ -283,15 +283,27 @@ void loop(void)
             std::ostringstream oss;
             oss << " IMG:XY@ = " << std::setw(4) << ibotpos.x << ", " << ibotpos.y;
             oss << "  " << std::fixed << std::setprecision(1) << theRobot.get_ang();
-            putText(img_viewer_bgr, oss.str(), { 0, 360 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLACK, 2);
+            putText(img_viewer_bgr, oss.str(), { 0, 400 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLACK, 2);
         }
 
         {
             std::ostringstream oss;
             oss << " MATCH = " << std::setw(4) << match_offset.x << ", " << match_offset.y;
             oss << "  " << std::fixed << std::setprecision(1) << match_angle;
-            putText(img_viewer_bgr, oss.str(), { 0, 385 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
+            putText(img_viewer_bgr, oss.str(), { 0, 430 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
         }
+
+        // show image of the Hough bins but scaled and equalized to make it pretty
+        Mat img_acc;
+        Mat img_acc8;
+        Mat img_acc8_bgr;
+        normalize(ghnav.m_img_acc, img_acc, 0, 255, cv::NORM_MINMAX);
+        img_acc.convertTo(img_acc8, CV_8UC1);
+        equalizeHist(img_acc8, img_acc8);
+        cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
+        circle(img_acc8_bgr, ghnav.m_img_acc_pt, 2, { 0,0,255 }, -1);
+        Rect mroix = { { 25, 460 }, Size(ghnav.m_accum_img_fulldim, ghnav.m_accum_img_fulldim) };
+        img_acc8_bgr.copyTo(img_viewer_bgr(mroix));
 
         // show the BGR image
         image_output(img_viewer_bgr);

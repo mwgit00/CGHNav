@@ -37,16 +37,17 @@ namespace cpoz
         {
             uint8_t angcode;
             std::list<cv::Point> line;
-        } T_PREPROC;
+        } T_PREPROC_SEGMENT;
 
-        typedef std::list<T_PREPROC> tListPreProc;
 
-        
         typedef struct
         {
-            tListPreProc list_preproc;
-            std::vector<std::list<cv::Point>> lookup;
-        } T_TEMPLATE;
+            std::vector<size_t> angcode_cts;        ///< number of occurrences of each angle code
+            std::list<T_PREPROC_SEGMENT> segments;  ///< list of encoded line segments
+        } T_PREPROC;
+
+        
+        typedef std::vector<std::vector<cv::Point>> T_TEMPLATE;
 
         
         typedef struct
@@ -61,6 +62,7 @@ namespace cpoz
         
         static void plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist);
         
+        
         GHNav();
         virtual ~GHNav();
 
@@ -69,6 +71,7 @@ namespace cpoz
 
         size_t get_scan_ang_ct(void) const { return m_scan_ang_ct; }
         uint8_t get_angcode_ct(void) const { return m_search_angcode_ct; }
+        double get_search_resize(void) const { return m_search_resize; }
         
         const std::vector<double>& get_scan_angs(void) const { return m_scan_angs; }
 
@@ -79,7 +82,7 @@ namespace cpoz
             const double resize);
 
         void preprocess_scan(
-            tListPreProc& rlist,
+            T_PREPROC& rpreproc,
             const std::vector<double>& rscan,
             const size_t offset_index,
             const double resize);
@@ -87,8 +90,12 @@ namespace cpoz
         void draw_preprocessed_scan(
             cv::Mat& rimg,
             cv::Point& rpt0,
-            const GHNav::tListPreProc& rlist,
+            const GHNav::T_PREPROC& rpreproc,
             const int shrink = 1);
+
+        void create_match_template(
+            T_TEMPLATE& rtemplate,
+            const T_PREPROC& rpreproc);
 
         void update_match_templates(const std::vector<double>& rscan);
 
@@ -103,24 +110,22 @@ namespace cpoz
 
     public:
 
-        cv::Mat m_img_foo;
-        cv::Point m_img_foo_pt;
+        cv::Mat m_img_acc;
+        cv::Point m_img_acc_pt;
         int m_accum_img_halfdim;
         int m_accum_img_fulldim;
         int m_accum_bloom_k;
 
-        cv::Point m_pt0_template_ang_0; // center of 0 degree match template for display
-
         std::list<T_WAYPOINT> m_waypoints;
 
-    public:
+    private:
 
         size_t m_scan_ang_ct;           ///< number of angles (elements) in a LIDAR scan
         double m_scan_ang_min;          ///< negative angle from 0 (front)
         double m_scan_ang_max;          ///< positive angle from 0 (front)
         double m_scan_ang_step;         ///< step between angles in LIDAR scan
         double m_scan_max_rng;          ///< max range possible from LIDAR
-        double m_scan_len_thr;
+        double m_scan_rng_thr;
 
         uint8_t m_search_angcode_ct;    ///< number of angle codes to use
         size_t m_search_ang_ct;         ///< number of angles in 360 degree search
@@ -130,8 +135,6 @@ namespace cpoz
         std::vector<double> m_scan_angs;    ///< ideal scan angles
         
         std::vector<std::vector<cv::Point2d>> m_scan_cos_sin; ///< ideal cos and sin for scan angles
-
-        std::vector<cv::Point> tpt0_offset;         ///< center points for all templates
 
         std::vector<T_TEMPLATE> m_vtemplates;
     };

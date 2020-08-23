@@ -110,14 +110,12 @@ namespace cpoz
         m_accum_img_halfdim(20),
         m_accum_bloom_k(0)
     {
-        tpt0_offset.resize(m_search_ang_ct);
-
         init_scan_angs();
 
-        // threshold for adjacent measurements that are too far from each other
-        // they are likely not on the same surface and can be ignored
+        // if adjacent measurements are too far from each other
+        // then they are likely not on the same surface and can be ignored
         // the threshold is distance between two measurements at max LIDAR range
-        m_scan_len_thr = m_scan_max_rng * tan(m_scan_ang_step * CONV_DEG2RAD);
+        m_scan_rng_thr = m_scan_max_rng * tan(m_scan_ang_step * CONV_DEG2RAD);
 
         // init width/height of accumulator image
         m_accum_img_fulldim = (m_accum_img_halfdim + m_accum_bloom_k) * 2 + 1;
@@ -184,7 +182,7 @@ namespace cpoz
 
 
     void GHNav::preprocess_scan(
-        tListPreProc& rlist,
+        T_PREPROC& rpreproc,
         const std::vector<double>& rscan,
         const size_t offset_index,
         const double resize)
@@ -192,12 +190,19 @@ namespace cpoz
         std::vector<Point> vpts;
         convert_scan_to_pts(vpts, rscan, offset_index, resize);
 
-        const int dthr = static_cast<int>(m_scan_len_thr * m_scan_len_thr * resize);
+        rpreproc.angcode_cts.clear();
+        rpreproc.angcode_cts.resize(m_search_angcode_ct);
+
+        // convert range threshold for quick integer comparison without square root
+        double rng_thr_resize = m_scan_rng_thr * resize;
+        const int dthr = static_cast<int>(rng_thr_resize * rng_thr_resize);
 
         for (size_t nn = 0; nn < (vpts.size() - 1); nn++)
         {
             Point pt0 = vpts[nn];
             Point pt1 = vpts[(nn + 1)];
+
+            /// @TODO -- what about line that connects head to tail ???
 
             // the resize factor may make some points equal to one another
             // only proceed if points are not equal
@@ -209,9 +214,11 @@ namespace cpoz
                 {
                     // points meet the closeness criteria
                     // so create a line from pt0 to pt1
-                    rlist.push_back(T_PREPROC{});
-                    rlist.back().angcode = convert_xy_to_angcode(dpt.x, dpt.y, m_search_angcode_ct);
-                    plot_line(pt0, pt1, rlist.back().line);
+                    uint8_t angcode = convert_xy_to_angcode(dpt.x, dpt.y, m_search_angcode_ct);
+                    rpreproc.segments.push_back(T_PREPROC_SEGMENT{});
+                    rpreproc.segments.back().angcode = angcode;
+                    plot_line(pt0, pt1, rpreproc.segments.back().line);
+                    rpreproc.angcode_cts[angcode] += rpreproc.segments.back().line.size();
                 }
             }
         }
@@ -221,12 +228,12 @@ namespace cpoz
     void GHNav::draw_preprocessed_scan(
         cv::Mat& rimg,
         cv::Point& rpt0,
-        const GHNav::tListPreProc& rlist,
+        const GHNav::T_PREPROC& rpreproc,
         const int shrink)
     {
         // collect all points
         std::vector<Point> vpts;
-        for (const auto& r : rlist)
+        for (const auto& r : rpreproc.segments)
         {
             for (const auto& rr : r.line)
             {
@@ -244,15 +251,12 @@ namespace cpoz
         rimg = Mat::zeros(imgsz, CV_8UC1);
 
         // shift points to fit in image and draw dot at each point
-        for (const auto& r : rlist)
+        for (const auto& r : vpts)
         {
-            for (const auto& rr : r.line)
-            {
-                Point ptnew = {
-                    ((rr.x - bbox.x) / shrink) + PAD_BORDER,
-                    ((rr.y - bbox.y) / shrink) + PAD_BORDER };
-                rimg.at<uint8_t>(ptnew) = 255;
-            }
+            Point ptnew = {
+                ((r.x - bbox.x) / shrink) + PAD_BORDER,
+                ((r.y - bbox.y) / shrink) + PAD_BORDER };
+            rimg.at<uint8_t>(ptnew) = 255;
         }
 
         // finally note the central point of the scan in the scan image
@@ -262,21 +266,50 @@ namespace cpoz
     }
 
 
+    void GHNav::create_match_template(
+        T_TEMPLATE& rtemplate,
+        const T_PREPROC& rpreproc)
+    {
+        // create a data index pointer array for each angle code lookup table
+        std::vector<Point*> vppt(m_search_angcode_ct);
+
+        // use preproc info to allocate template lookup tables
+        // also initialize data index pointers
+        rtemplate.resize(m_search_angcode_ct);
+        for (size_t jj = 0; jj < m_search_angcode_ct; jj++)
+        {
+            rtemplate[jj].resize(rpreproc.angcode_cts[jj]);
+            vppt[jj] = rtemplate[jj].data();
+        }
+
+        // use appropriate data index pointer to fill in each lookup table
+        for (const auto& r : rpreproc.segments)
+        {
+            for (const auto& rpt : r.line)
+            {
+                // stuff point into lookup table and advance pointer
+                uint8_t angcode = r.angcode;
+                *(vppt[angcode]) = rpt;
+                ++vppt[angcode];
+            }
+        }
+    }
+
+    
     void GHNav::update_match_templates(const std::vector<double>& rscan)
     {
         m_vtemplates.clear();
         m_vtemplates.resize(m_search_ang_ct);
+
+        // loop through all angles
         for (size_t ii = 0; ii < m_search_ang_ct; ii++)
         {
-            preprocess_scan(m_vtemplates[ii].list_preproc, rscan, ii, m_search_resize);
-            m_vtemplates[ii].lookup.resize(m_search_angcode_ct);
-            for (const auto& r : m_vtemplates[ii].list_preproc)
-            {
-                for (const auto& rpt : r.line)
-                {
-                    m_vtemplates[ii].lookup[r.angcode].push_back(rpt);
-                }
-            }
+            // generate rotated representation of scan
+            T_PREPROC preproc;
+            preprocess_scan(preproc, rscan, ii, m_search_resize);
+
+            // make a template for it
+            create_match_template(m_vtemplates[ii], preproc);
         }
     }
 
@@ -286,13 +319,13 @@ namespace cpoz
         cv::Point& roffset,
         double& rang)
     {
-        tListPreProc list_preproc;
+        T_PREPROC preproc;
 
         const int BLOOM_PAD = m_accum_img_halfdim + m_accum_bloom_k;
         const Point boo = { BLOOM_PAD, BLOOM_PAD };
         
         // use 0 angle
-        preprocess_scan(list_preproc, rscan, 0, m_search_resize);
+        preprocess_scan(preproc, rscan, 0, m_search_resize);
 
         size_t qjjmax = 0U;
         double qallmax = 0.0;
@@ -300,15 +333,15 @@ namespace cpoz
 
         for (size_t jj = 0; jj < m_search_ang_ct; jj++)
         {
-            // get new template and vote accumulator image
+            // get new template and create new vote accumulator image
             T_TEMPLATE& rt = m_vtemplates[jj];
             Mat img_acc = Mat::zeros(m_accum_img_fulldim, m_accum_img_fulldim, CV_16U);
 
-            for (const auto& rpreproc : list_preproc)
+            for (const auto& rseg : preproc.segments)
             {
-                for (const auto& rlinept : rpreproc.line)
+                for (const auto& rlinept : rseg.line)
                 {
-                    for (const auto& rmatchpt : rt.lookup[rpreproc.angcode])
+                    for (const auto& rmatchpt : rt[rseg.angcode])
                     {
                         // translate the vote pt and see
                         // if it falls in accumulator image
@@ -347,13 +380,14 @@ namespace cpoz
             {
                 qallmax = qmax;
                 qallmaxpt = qmaxpt;
-                img_acc.copyTo(m_img_foo);
+                img_acc.copyTo(m_img_acc);
                 qjjmax = jj;
             }
         }
 
-        m_img_foo_pt = qallmaxpt;
+        m_img_acc_pt = qallmaxpt;
         rang = static_cast<double>(qjjmax * m_search_ang_step);
+
 #if 0
         // convert scan to an image (no rotation)
         draw_preprocessed_scan(m_img_scan, m_pt0_scan, sz / 2, rscan);
