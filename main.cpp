@@ -90,7 +90,7 @@ bool wait_and_check_keys(const int delay_ms = 1)
         {
             switch (ckey)
             {
-            case 'r': is_rec_enabled = !is_rec_enabled; std::cout << "REC\n"; break;
+            case 'r': is_rec_enabled = !is_rec_enabled; break;
             case '1':
             {
                 // noiseless LIDAR
@@ -102,14 +102,23 @@ bool wait_and_check_keys(const int delay_ms = 1)
             }
             case '2':
             {
-                // noisy LIDAR
+                // slightly noisy LIDAR
                 theLidar.get_params().range_dec_pt_adjust = 1;
                 theLidar.get_params().jitter_angle_deg_u = 0.2;
-                theLidar.get_params().jitter_range_u = 0.25;
+                theLidar.get_params().jitter_range_u = 0.5;
                 theLidar.get_params().jitter_sync_deg_u = 0.25;
                 break;
             }
             case '3':
+            {
+                // noisy LIDAR
+                theLidar.get_params().range_dec_pt_adjust = 1;
+                theLidar.get_params().jitter_angle_deg_u = 0.3;
+                theLidar.get_params().jitter_range_u = 2.0;
+                theLidar.get_params().jitter_sync_deg_u = 0.35;
+                break;
+            }
+            case '4':
             {
                 // really noisy LIDAR
                 theLidar.get_params().range_dec_pt_adjust = 1;
@@ -153,16 +162,22 @@ bool wait_and_check_keys(const int delay_ms = 1)
 
 void image_output(cv::Mat& rimg)
 {
+    static int ctr = 0;
+    
     // save each frame to a file if recording
     if (is_rec_enabled)
     {
+        ctr++;
+        Scalar sca = ((ctr >> 3) & 1) ? SCA_RED : SCA_DKGRAY;
+        
+        // blinking red box in upper right corner if recording
+        int x = rimg.size().width - 20;
+        rectangle(rimg, { x, 0, x + 20, 20 }, sca, -1);
+
         std::ostringstream osx;
         osx << MOVIE_PATH << "img_" << std::setfill('0') << std::setw(5) << n_record_ctr << ".png";
         imwrite(osx.str(), rimg);
         n_record_ctr++;
-
-        // red box in upper corner if recording
-        rectangle(rimg, { 0, 0, 4, 4 }, SCA_RED, -1);
     }
 
     imshow(stitle, rimg);
@@ -302,7 +317,7 @@ void loop(void)
         equalizeHist(img_acc8, img_acc8);
         cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
         circle(img_acc8_bgr, ghnav.m_img_acc_pt, 2, { 0,0,255 }, -1);
-        Rect mroix = { { 25, 460 }, Size(ghnav.m_accum_img_fulldim, ghnav.m_accum_img_fulldim) };
+        Rect mroix = { { 25, 460 }, Size(ghnav.m_acc_fulldim, ghnav.m_acc_fulldim) };
         img_acc8_bgr.copyTo(img_viewer_bgr(mroix));
 
         // show the BGR image

@@ -98,6 +98,8 @@ namespace cpoz
 
     
     GHNav::GHNav() :
+        m_acc_halfdim(20),
+        m_acc_bloomdim(0),
         m_scan_ang_ct(341),                 // 340 degree scan (+1 for 0 degree sample)
         m_scan_ang_min(-170.0),             // 20 degree "blind spot" behind robot
         m_scan_ang_max(170.0),
@@ -106,9 +108,8 @@ namespace cpoz
         m_search_angcode_ct(8),
         m_search_ang_ct(360),               // 360 degree search
         m_search_ang_step(1.0),             // 1 degree between each search step
-        m_search_resize(0.25),
-        m_accum_img_halfdim(20),
-        m_accum_bloom_k(0)
+        m_search_resize(0.125),
+        m_search_resize_big(0.5)
     {
         init_scan_angs();
 
@@ -118,7 +119,7 @@ namespace cpoz
         m_scan_rng_thr = m_scan_max_rng * tan(m_scan_ang_step * CONV_DEG2RAD);
 
         // init width/height of accumulator image
-        m_accum_img_fulldim = (m_accum_img_halfdim + m_accum_bloom_k) * 2 + 1;
+        m_acc_fulldim = (m_acc_halfdim + m_acc_bloomdim) * 2 + 1;
     }
     
     
@@ -155,28 +156,6 @@ namespace cpoz
                 m_scan_cos_sin.back().push_back(cv::Point2d(cos(ang_rad), sin(ang_rad)));
             }
             ang_offset += m_search_ang_step;
-        }
-    }
-
-
-    void GHNav::convert_scan_to_pts(
-        std::vector<cv::Point>& rvpts,
-        const std::vector<double>& rscan,
-        const size_t offset_index,
-        const double resize)
-    {
-        // look up the desired cos and sin table
-        std::vector<Point2d>& rveccs = m_scan_cos_sin[offset_index];
-        
-        // project all measurements using ideal measurement angles
-        // also determine bounds of the X,Y coordinates
-        rvpts.resize(rscan.size());
-        for (size_t nn = 0; nn < rvpts.size(); nn++)
-        {
-            double mag = rscan[nn] * resize;
-            int dx = static_cast<int>((rveccs[nn].x * mag) + 0.5);
-            int dy = static_cast<int>((rveccs[nn].y * mag) + 0.5);
-            rvpts[nn] = { dx, dy };
         }
     }
 
@@ -266,7 +245,138 @@ namespace cpoz
     }
 
 
-    void GHNav::create_match_template(
+    void GHNav::update_match_templates(const std::vector<double>& rscan)
+    {
+        m_vtemplates.clear();
+        m_vtemplates.resize(m_search_ang_ct);
+
+        // loop through all angles
+        for (size_t ii = 0; ii < m_search_ang_ct; ii++)
+        {
+            // generate rotated representation of scan
+            // and make a template for it
+            T_PREPROC preproc;
+            preprocess_scan(preproc, rscan, ii, m_search_resize);
+            create_template(m_vtemplates[ii], preproc);
+        }
+
+        m_vtemplates_big.clear();
+        m_vtemplates_big.resize(m_search_ang_ct);
+
+        // loop through all angles
+        for (size_t ii = 0; ii < m_search_ang_ct; ii++)
+        {
+            // generate rotated representation of scan
+            // and make a template for it
+            T_PREPROC preproc;
+            preprocess_scan(preproc, rscan, ii, m_search_resize_big);
+            create_template(m_vtemplates_big[ii], preproc);
+        }
+    }
+
+
+    void GHNav::perform_match(
+        const std::vector<double>& rscan,
+        cv::Point& roffset,
+        double& rang)
+    {
+        // preprocess the input scan (use 0 angle)
+        T_PREPROC preproc;
+        preprocess_scan(preproc, rscan, 0, m_search_resize);
+
+        size_t qjjmax = 0U;
+        double qallmax = 0.0;
+        Point qallmaxpt = { 0,0 };
+
+        // match input scan against all angle templates
+        for (size_t jj = 0; jj < m_search_ang_ct; jj++)
+        {
+            Mat img_acc;
+            Point qmaxpt;
+            double qmax;
+
+            match_single_template(
+                m_vtemplates[jj],
+                m_acc_fulldim, m_acc_halfdim, m_acc_bloomdim,
+                preproc, img_acc, qmaxpt, qmax);
+
+            if (qmax > qallmax)
+            {
+                qallmax = qmax;
+                qallmaxpt = qmaxpt;
+                img_acc.copyTo(m_img_acc);
+                qjjmax = jj;
+            }
+        }
+
+        m_img_acc_pt = qallmaxpt;
+        rang = static_cast<double>(qjjmax * m_search_ang_step);
+
+        // do a single match at larger scale
+        // to get better result for X,Y match offset
+        T_PREPROC preproc_big;
+        preprocess_scan(preproc_big, rscan, 0, m_search_resize_big);
+
+        Mat img_acc_big;
+        Point qbigmaxpt;
+        double qbigmax;
+        match_single_template(
+            m_vtemplates_big[qjjmax],
+            161,  // FIXME
+            80,
+            0,
+            preproc_big, img_acc_big, qbigmaxpt, qbigmax);
+
+        Size szacc = img_acc_big.size();
+        Point ptctr = { szacc.width / 2, szacc.height / 2 };
+        roffset = qbigmaxpt - ptctr;
+
+#if 1
+        // un-rotate offset by matched orientation angle
+        Point p0 = roffset;
+        double rang_rad = rang * CV_PI / 180.0;
+        double cos0 = cos(rang_rad);
+        double sin0 = sin(rang_rad);
+#if 0
+        roffset.x = static_cast<int>(p0.x * cos0 - p0.y * sin0);
+        roffset.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
+#else
+        roffset.x = static_cast<int>( p0.x * cos0 + p0.y * sin0);
+        roffset.y = static_cast<int>(-p0.x * sin0 + p0.y * cos0);
+#endif
+#endif
+    }
+
+
+    void GHNav::add_waypoint(GHNav::T_WAYPOINT& rwp)
+    {
+        m_waypoints.push_back(rwp);
+    }
+
+
+    void GHNav::convert_scan_to_pts(
+        std::vector<cv::Point>& rvpts,
+        const std::vector<double>& rscan,
+        const size_t offset_index,
+        const double resize)
+    {
+        // look up the desired cos and sin table
+        std::vector<Point2d>& rveccs = m_scan_cos_sin[offset_index];
+
+        // project all measurements using ideal measurement angles
+        // also determine bounds of the X,Y coordinates
+        rvpts.resize(rscan.size());
+        for (size_t nn = 0; nn < rvpts.size(); nn++)
+        {
+            double mag = rscan[nn] * resize;
+            int dx = static_cast<int>((rveccs[nn].x * mag) + 0.5);
+            int dy = static_cast<int>((rveccs[nn].y * mag) + 0.5);
+            rvpts[nn] = { dx, dy };
+        }
+    }
+
+
+    void GHNav::create_template(
         T_TEMPLATE& rtemplate,
         const T_PREPROC& rpreproc)
     {
@@ -295,157 +405,59 @@ namespace cpoz
         }
     }
 
-    
-    void GHNav::update_match_templates(const std::vector<double>& rscan)
+
+    void GHNav::match_single_template(
+        const T_TEMPLATE& rtemplate,
+        const int acc_dim,
+        const int acc_halfdim,
+        const int acc_bloomdim,
+        const T_PREPROC& rpreproc,
+        cv::Mat& rimg_acc,
+        cv::Point& rmaxpt,
+        double& rmax)
     {
-        m_vtemplates.clear();
-        m_vtemplates.resize(m_search_ang_ct);
+        const int BLOOM_PAD = acc_halfdim + m_acc_bloomdim;
+        const Point ctr_offset = { BLOOM_PAD, BLOOM_PAD };
 
-        // loop through all angles
-        for (size_t ii = 0; ii < m_search_ang_ct; ii++)
+        // create new vote accumulator image
+        rimg_acc = Mat::zeros(acc_dim, acc_dim, CV_16U);
+
+        for (const auto& rseg : rpreproc.segments)
         {
-            // generate rotated representation of scan
-            T_PREPROC preproc;
-            preprocess_scan(preproc, rscan, ii, m_search_resize);
-
-            // make a template for it
-            create_match_template(m_vtemplates[ii], preproc);
-        }
-    }
-
-
-    void GHNav::perform_match(
-        const std::vector<double>& rscan,
-        cv::Point& roffset,
-        double& rang)
-    {
-        T_PREPROC preproc;
-
-        const int BLOOM_PAD = m_accum_img_halfdim + m_accum_bloom_k;
-        const Point boo = { BLOOM_PAD, BLOOM_PAD };
-        
-        // use 0 angle
-        preprocess_scan(preproc, rscan, 0, m_search_resize);
-
-        size_t qjjmax = 0U;
-        double qallmax = 0.0;
-        Point qallmaxpt = { 0,0 };
-
-        for (size_t jj = 0; jj < m_search_ang_ct; jj++)
-        {
-            // get new template and create new vote accumulator image
-            T_TEMPLATE& rt = m_vtemplates[jj];
-            Mat img_acc = Mat::zeros(m_accum_img_fulldim, m_accum_img_fulldim, CV_16U);
-
-            for (const auto& rseg : preproc.segments)
+            for (const auto& rlinept : rseg.line)
             {
-                for (const auto& rlinept : rseg.line)
+                for (const auto& rmatchpt : rtemplate[rseg.angcode])
                 {
-                    for (const auto& rmatchpt : rt[rseg.angcode])
+                    // translate the vote pt and see
+                    // if it falls in accumulator image
+                    Point votept = rlinept - rmatchpt;
+                    if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
-                        // translate the vote pt and see
-                        // if it falls in accumulator image
-                        Point votept = rlinept - rmatchpt;
-                        if ((abs(votept.x) < m_accum_img_halfdim) && (abs(votept.y) < m_accum_img_halfdim))
-                        {
 #if 0
-                            // bloom
-                            for (int mm = -m_accum_bloom_k; mm <= m_accum_bloom_k; mm++)
+                        // bloom
+                        for (int mm = -m_accum_bloom_k; mm <= m_accum_bloom_k; mm++)
+                        {
+                            for (int nn = -m_accum_bloom_k; nn <= m_accum_bloom_k; nn++)
                             {
-                                for (int nn = -m_accum_bloom_k; nn <= m_accum_bloom_k; nn++)
-                                {
-                                    int q = m_accum_bloom_k + 1 - max(abs(nn), abs(mm));
-                                    Point d = { mm, nn };
-                                    Point e = votept + d + boo;
-                                    uint16_t upix = img_acc.at<uint16_t>(e);
-                                    upix += static_cast<uint16_t>(q);
-                                    img_acc.at<uint16_t>(e) = upix;
-                                }
+                                int q = m_accum_bloom_k + 1 - max(abs(nn), abs(mm));
+                                Point d = { mm, nn };
+                                Point e = votept + d + boo;
+                                uint16_t upix = img_acc.at<uint16_t>(e);
+                                upix += static_cast<uint16_t>(q);
+                                img_acc.at<uint16_t>(e) = upix;
                             }
-#else
-                            Point e = votept + boo;
-                            uint16_t upix = img_acc.at<uint16_t>(e);
-                            upix += 1;// static_cast<uint16_t>(q);
-                            img_acc.at<uint16_t>(e) = upix;
-#endif
                         }
+#else
+                        Point e = votept + ctr_offset;
+                        uint16_t upix = rimg_acc.at<uint16_t>(e) + 1;
+                        rimg_acc.at<uint16_t>(e) = upix;
+#endif
                     }
                 }
             }
-
-            double qmax;
-            Point qmaxpt;
-            minMaxLoc(img_acc, nullptr, &qmax, nullptr, &qmaxpt);
-            if (qmax > qallmax)
-            {
-                qallmax = qmax;
-                qallmaxpt = qmaxpt;
-                img_acc.copyTo(m_img_acc);
-                qjjmax = jj;
-            }
         }
 
-        m_img_acc_pt = qallmaxpt;
-        rang = static_cast<double>(qjjmax * m_search_ang_step);
-
-#if 0
-        // convert scan to an image (no rotation)
-        draw_preprocessed_scan(m_img_scan, m_pt0_scan, sz / 2, rscan);
-
-        Point tptq_mid = (m_img_scan.size() / 2);
-        Point tptq_offset = m_pt0_scan - tptq_mid;
-
-        // get template for running match ???
-
-        // search for best orientation match
-        // this match will also provide the translation
-        // but an "un-rotation" is required after the best match is found
-        // (instead of linear search, maybe the previous match could be start for this match ???)
-        size_t qidmax = 0;
-        double qallmax = 0.0;
-        Point qptmax_offset;
-        for (size_t ii = 0; ii < sz; ii++)
-        {
-            Mat img_match;
-            double qmax = 0.0;
-            Point qptmax = { 0, 0 };
-
-            // GH ???
-
-            double qmaxtotal = 0.0;
-            if (qmaxtotal > 0.0)
-            {
-                qmax = qmax / qmaxtotal;
-                if (qmax > qallmax)
-                {
-                    qallmax = qmax;
-                    qidmax = ii;
-                    qptmax_offset = qptmax - tptq_mid;
-                }
-            }
-        }
-
-        roffset = tptq_offset - tpt0_offset[qidmax] - qptmax_offset;
-        rang = scan_angs_offsets[qidmax];
-
-        // un-rotate offset by matched orientation angle
-        Point p0 = roffset;
-        double rang_rad = rang * CV_PI / 180.0;
-        double cos0 = cos(rang_rad);
-        double sin0 = sin(rang_rad);
-#if 0
-        roffset.x = static_cast<int>(p0.x * cos0 - p0.y * sin0);
-        roffset.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
-#else
-        roffset.x = static_cast<int>( p0.x * cos0 + p0.y * sin0);
-        roffset.y = static_cast<int>(-p0.x * sin0 + p0.y * cos0);
-#endif
-#endif
-    }
-
-
-    void GHNav::add_waypoint(GHNav::T_WAYPOINT& rwp)
-    {
-        m_waypoints.push_back(rwp);
+        // finally search for max in bin
+        minMaxLoc(rimg_acc, nullptr, &rmax, nullptr, &rmaxpt);
     }
 }

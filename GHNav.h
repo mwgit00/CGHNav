@@ -66,7 +66,6 @@ namespace cpoz
         GHNav();
         virtual ~GHNav();
 
-        
         void init_scan_angs(void);
 
         size_t get_scan_ang_ct(void) const { return m_scan_ang_ct; }
@@ -74,12 +73,6 @@ namespace cpoz
         double get_search_resize(void) const { return m_search_resize; }
         
         const std::vector<double>& get_scan_angs(void) const { return m_scan_angs; }
-
-        void convert_scan_to_pts(
-            std::vector<cv::Point>& rvec,
-            const std::vector<double>& rscan,
-            const size_t offset_index,
-            const double resize);
 
         void preprocess_scan(
             T_PREPROC& rpreproc,
@@ -93,10 +86,6 @@ namespace cpoz
             const GHNav::T_PREPROC& rpreproc,
             const int shrink = 1);
 
-        void create_match_template(
-            T_TEMPLATE& rtemplate,
-            const T_PREPROC& rpreproc);
-
         void update_match_templates(const std::vector<double>& rscan);
 
         void perform_match(
@@ -108,13 +97,35 @@ namespace cpoz
 
         const std::list<GHNav::T_WAYPOINT>& get_waypoints(void) const { return m_waypoints; }
 
+    private:
+
+        void convert_scan_to_pts(
+            std::vector<cv::Point>& rvec,
+            const std::vector<double>& rscan,
+            const size_t offset_index,
+            const double resize);
+
+        void create_template(
+            T_TEMPLATE& rtemplate,
+            const T_PREPROC& rpreproc);
+
+        void match_single_template(
+            const T_TEMPLATE& rtemplate,
+            const int acc_dim,
+            const int acc_halfdim,
+            const int acc_bloomdim,
+            const T_PREPROC& rpreproc,
+            cv::Mat& rimg_acc,
+            cv::Point& rmaxpt,
+            double& rmax);
+
     public:
 
         cv::Mat m_img_acc;
         cv::Point m_img_acc_pt;
-        int m_accum_img_halfdim;
-        int m_accum_img_fulldim;
-        int m_accum_bloom_k;
+        int m_acc_halfdim;
+        int m_acc_fulldim;
+        int m_acc_bloomdim;
 
         std::list<T_WAYPOINT> m_waypoints;
 
@@ -131,12 +142,14 @@ namespace cpoz
         size_t m_search_ang_ct;         ///< number of angles in 360 degree search
         double m_search_ang_step;       ///< angle step in 360 degree search
         double m_search_resize;         ///< resize (shrink) factor
+        double m_search_resize_big;     ///< resize (shrink) factor for big templates
 
         std::vector<double> m_scan_angs;    ///< ideal scan angles
         
         std::vector<std::vector<cv::Point2d>> m_scan_cos_sin; ///< ideal cos and sin for scan angles
 
         std::vector<T_TEMPLATE> m_vtemplates;
+        std::vector<T_TEMPLATE> m_vtemplates_big;
     };
 }
 
