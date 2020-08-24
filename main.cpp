@@ -24,6 +24,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 #include "opencv2/imgproc.hpp"
 #include "opencv2/imgcodecs.hpp"
@@ -59,6 +60,8 @@ const double avel3 = 4 * vspinfac;
 const double avel4 = 7 * vspinfac;
 const double avelf = 1.6;
 
+static int g_frame_ct = 0;
+static int g_fps = 0;
 
 static bool is_rec_enabled = false;
 static bool is_loc_enabled = false;
@@ -164,7 +167,12 @@ bool wait_and_check_keys(const int delay_ms = 1)
 void image_output(cv::Mat& rimg)
 {
     static int ctr = 0;
-    
+
+    // display frames per second at top of screen
+    std::ostringstream oss;
+    oss << g_fps << "fps";
+    putText(rimg, oss.str(), { 1000, 32 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLACK, 2);
+
     // save each frame to a file if recording
     if (is_rec_enabled)
     {
@@ -216,10 +224,23 @@ void loop(void)
     img_orig = imread(".\\docs\\apt_1cmpp_720p.png", IMREAD_GRAYSCALE);
 
     // and the processing loop is running...
+    auto t_start = std::chrono::steady_clock::now();
     bool is_running = true;
+    size_t ts_prev = 0;
 
     while (is_running)
     {
+        // keep track of frames per second
+        auto t_now = std::chrono::steady_clock::now();
+        size_t ts = std::chrono::duration_cast<std::chrono::seconds>(t_now - t_start).count();
+        if (ts != ts_prev)
+        {
+            g_fps = g_frame_ct;
+            g_frame_ct = 0;
+        }
+        g_frame_ct++;
+        ts_prev = ts;
+
         // handle keyboard events and end when ESC is pressed
         is_running = wait_and_check_keys(25);
 
@@ -282,9 +303,9 @@ void loop(void)
         // draw LIDAR scan lines over floorplan
         theLidar.draw_last_scan(img_viewer_bgr, SCA_DKGRAY);
 
-        // draw current home
+        // draw current home position with orientation line
         {
-            circle(img_viewer_bgr, home_pos, 5, SCA_CYAN, -1);
+            circle(img_viewer_bgr, home_pos, 4, SCA_CYAN, -1);
             int angx = static_cast<int>(home_ang_vec.x * 12.0);
             int angy = static_cast<int>(home_ang_vec.y * 12.0);
             line(img_viewer_bgr, home_pos, home_pos + Point{ angx, angy }, SCA_CYAN, 2);
@@ -308,7 +329,7 @@ void loop(void)
         {
             // print robot position in image
             std::ostringstream oss;
-            oss << " IMG:XY@ = " << std::setw(4) << ibotpos.x << ", " << ibotpos.y;
+            oss << " BotXY@ = " << std::setw(4) << ibotpos.x << ", " << ibotpos.y;
             oss << "  " << std::fixed << std::setprecision(1) << theRobot.get_ang();
             putText(img_viewer_bgr, oss.str(), { 0, 400 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLACK, 2);
         }
@@ -321,7 +342,27 @@ void loop(void)
             putText(img_viewer_bgr, oss.str(), { 0, 430 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
         }
 
-        // show image of the Hough bins
+        {
+            // show where the robot thinks it is relative to current home point
+            // also draw a line showing what robot thinks its orientation is
+            int fac = static_cast<int>(1.0 / ghnav.get_match_params().resize_big);
+            Point p0 = match_offset * fac;
+            Point prot;
+            double rang_rad = home_ang * CV_PI / 180.0;
+            double cos0 = cos(rang_rad);
+            double sin0 = sin(rang_rad);
+            prot.x = static_cast<int>(p0.x * cos0 - p0.y * sin0);
+            prot.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
+            Point guesspt = home_pos - prot;
+            circle(img_viewer_bgr, guesspt, 4, SCA_RED, -1);
+            rang_rad = (home_ang - match_angle) * CV_PI / 180.0;
+            int dx = static_cast<int>(cos(rang_rad) * 12);
+            int dy = static_cast<int>(sin(rang_rad) * 12);
+            line(img_viewer_bgr, guesspt, guesspt + Point({ dx, dy }), SCA_RED, 2);
+        }
+
+#ifdef DEMO_IMG_ACC
+        // show image of the Hough bins for best match
         // scale values and equalize to make it pretty
         Mat img_acc;
         Mat img_acc8;
@@ -333,6 +374,7 @@ void loop(void)
         circle(img_acc8_bgr, ghnav.m_img_acc_pt, 2, { 0,0,255 }, -1);
         Rect mroix = { { 25, 460 }, img_acc8_bgr.size() };
         img_acc8_bgr.copyTo(img_viewer_bgr(mroix));
+#endif
 
         // show the BGR image
         image_output(img_viewer_bgr);

@@ -143,8 +143,11 @@ namespace cpoz
 
     public:
 
+#ifdef DEMO_IMG_ACC
+        // purely for testing
         cv::Mat m_img_acc;
         cv::Point m_img_acc_pt;
+#endif
 
     private:
 

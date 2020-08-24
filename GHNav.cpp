@@ -272,12 +272,14 @@ namespace cpoz
             {
                 qallmax = qmax;
                 qallmaxpt = qmaxpt;
+#ifdef DEMO_IMG_ACC
                 img_acc.copyTo(m_img_acc);
+                m_img_acc_pt = qallmaxpt;
+#endif
                 qjjmax = jj;
             }
         }
 
-        m_img_acc_pt = qallmaxpt;
         rang = static_cast<double>(qjjmax * m_match_params.ang_step);
 
         // do a single match at larger scale
