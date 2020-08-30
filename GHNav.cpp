@@ -40,29 +40,29 @@ namespace cpoz
     constexpr double CONV_DEG2RAD = CV_PI / 180.0;
 
 
-    uint8_t GHNav::convert_xy_to_angcode(int x, int y, uint8_t ct)
+    static double xy_to_360deg(int y, int x)
     {
         // convert X,Y to angle in degrees (0-360)
         double angdeg = atan2(y, x) * CONV_RAD2DEG;
-        angdeg = (angdeg < 0.0) ? angdeg + 360.0 : angdeg;
+        return (angdeg < 0.0) ? angdeg + 360.0 : angdeg;
+    }
 
+
+    static uint8_t encode_ang(double angdeg, uint8_t ct)
+    {
         // convert angle to a byte code
         // at 360 the angle code is equal to ct so wrap it back
         // to angle code 0 to keep angle code in range 0 to (ct - 1)
-        uint8_t angcode = static_cast<uint8_t>((ct * angdeg) / 360.0);
-        if (angcode == ct)
-        {
-            angcode = 0;
-        }
-
-        return angcode;
+        double dct = static_cast<double>(ct);
+        uint8_t angcode = static_cast<uint8_t>((dct * angdeg) / 360.0);
+        return (angcode == ct) ? 0 : angcode;
     }
 
 
     void GHNav::plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist)
     {
         // Bresenham Line Algorithm from Wikipedia
-        
+
         int dx = abs(pt1.x - pt0.x);
         int sx = (pt0.x < pt1.x) ? 1 : -1;
         int dy = -abs(pt1.y - pt0.y);
@@ -96,13 +96,13 @@ namespace cpoz
 #endif
     }
 
-    
+
     GHNav::GHNav()
     {
         init();
     }
-    
-    
+
+
     GHNav::~GHNav()
     {
         // nothing to do here
@@ -136,6 +136,7 @@ namespace cpoz
         std::vector<Point> vpts;
         convert_scan_to_pts(vpts, rscan, offset_index, resize);
 
+        rpreproc.ct = 0;
         rpreproc.angcode_cts.clear();
         rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
 
@@ -154,17 +155,30 @@ namespace cpoz
             // only proceed if points are not equal
             if (pt0 != pt1)
             {
-                Point dpt = pt1 - pt0;
-                int rsqu = ((dpt.x * dpt.x) + (dpt.y * dpt.y));
+                Point diffpt = pt1 - pt0;
+                int rsqu = ((diffpt.x * diffpt.x) + (diffpt.y * diffpt.y));
                 if (rsqu < dthr)
                 {
                     // points meet the closeness criteria
                     // so create a line from pt0 to pt1
-                    uint8_t angcode = convert_xy_to_angcode(dpt.x, dpt.y, m_match_params.angcode_ct);
+                    // and fill in angle info
+                    
+                    double angdeg = xy_to_360deg(diffpt.y, diffpt.x);
+                    uint8_t angcode = encode_ang(angdeg, m_match_params.angcode_ct);
+                    
                     rpreproc.segments.push_back(T_PREPROC_SEGMENT{});
+                    rpreproc.segments.back().angdeg = angdeg;
                     rpreproc.segments.back().angcode = angcode;
-                    plot_line(pt0, pt1, rpreproc.segments.back().line);
-                    rpreproc.angcode_cts[angcode] += rpreproc.segments.back().line.size();
+
+                    std::list<Point> temp_line;
+                    plot_line(pt0, pt1, temp_line);
+                    for (const auto& r : temp_line)
+                    {
+                        rpreproc.segments.back().lined.push_back(r);
+                    }
+                    
+                    rpreproc.angcode_cts[angcode] += rpreproc.segments.back().lined.size();
+                    rpreproc.ct += rpreproc.segments.back().lined.size();
                 }
             }
         }
@@ -181,7 +195,7 @@ namespace cpoz
         std::vector<Point> vpts;
         for (const auto& r : rpreproc.segments)
         {
-            for (const auto& rr : r.line)
+            for (const auto& rr : r.lined)
             {
                 vpts.push_back(rr);
             }
@@ -212,6 +226,47 @@ namespace cpoz
     }
 
 
+    void GHNav::rotate_preprocessed_scan(
+        GHNav::T_PREPROC& rpreproc,
+        const double angdegstep)
+
+    {
+        double angradstep = angdegstep * CONV_DEG2RAD;
+        double cos0 = cos(angradstep);
+        double sin0 = sin(angradstep);
+
+        rpreproc.ct = 0;
+        rpreproc.angcode_cts.clear();
+        rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
+
+        for (auto& r : rpreproc.segments)
+        {
+            r.angdeg -= angdegstep;
+            if (r.angdeg > 360.0) r.angdeg -= 360.0;
+            if (r.angdeg < 0.0) r.angdeg += 360.0;
+
+            r.angcode = encode_ang(r.angdeg, m_match_params.angcode_ct);
+            rpreproc.angcode_cts[r.angcode] += r.lined.size();
+            rpreproc.ct += r.lined.size();
+
+            for (auto& rr : r.lined)
+            {
+                Point2d rnew;
+#if 1
+                // this with angdeg works for drawing
+                rnew.x = rr.x * ( cos0) + rr.y * (sin0);
+                rnew.y = rr.x * (-sin0) + rr.y * (cos0);
+#else
+                rnew.x = rr.x * (cos0) + rr.y * (-sin0);
+                rnew.y = rr.x * (sin0) + rr.y * ( cos0);
+#endif
+                rr = rnew;
+            }
+        }
+    }
+
+
+#if 0
     void GHNav::update_match_templates(const std::vector<double>& rscan)
     {
         m_vtemplates.clear();
@@ -240,10 +295,58 @@ namespace cpoz
             create_template(m_vtemplates_big[ii], preproc);
         }
     }
+#endif
+
+    void GHNav::update_match_templates(const std::vector<double>& rscan)
+    {
+        T_PREPROC preproc;
+        m_vtemplates.clear();
+        m_vtemplates.resize(m_match_params.ang_ct);
+        preprocess_scan(preproc, rscan, 0, m_match_params.resize);
+
+        size_t foo_ct = preproc.ct;
+
+        // loop through all angles
+        for (size_t ii = 0; ii < m_match_params.ang_ct; ii++)
+        {
+            // generate rotated representation of scan
+            // and make a template for it
+            create_template(m_vtemplates[ii], preproc);
+            rotate_preprocessed_scan(preproc, m_match_params.ang_step);
+            if (preproc.ct != foo_ct)
+            {
+                ii = 5000;
+            }
+        }
+
+        T_PREPROC preproc_big;
+        m_vtemplates_big.clear();
+        m_vtemplates_big.resize(m_match_params.ang_ct);
+        preprocess_scan(preproc_big, rscan, 0, m_match_params.resize_big);
+
+        foo_ct = preproc_big.ct;
+
+        // loop through all angles
+        for (size_t ii = 0; ii < m_match_params.ang_ct; ii++)
+        {
+            // generate rotated representation of scan
+            // and make a template for it
+            create_template(m_vtemplates_big[ii], preproc_big);
+            rotate_preprocessed_scan(preproc_big, m_match_params.ang_step);
+            if (preproc_big.ct != foo_ct)
+            {
+                ii = 5000;
+            }
+        }
+    }
+
+
 
 
     void GHNav::perform_match(
         const std::vector<double>& rscan,
+        const int a1,
+        const int a2,
         cv::Point& roffset,
         double& rang)
     {
@@ -251,19 +354,21 @@ namespace cpoz
         T_PREPROC preproc;
         preprocess_scan(preproc, rscan, 0, m_match_params.resize);
 
-        size_t qjjmax = 0U;
+        int qjjjmax = 0;
         double qallmax = 0.0;
         Point qallmaxpt = { 0,0 };
 
-        // match input scan against all angle templates
-        for (size_t jj = 0; jj < m_match_params.ang_ct; jj++)
+        // match input scan
+        for (int jj = a1; jj <= a2; jj++)
         {
             Mat img_acc;
             Point qmaxpt;
             double qmax;
 
+            int jjj = (jj + m_match_params.ang_ct + m_match_params.ang_ct) % m_match_params.ang_ct;
+
             match_single_template(
-                m_vtemplates[jj],
+                m_vtemplates[jjj],
                 m_acc_fulldim,
                 m_match_params.acc_halfdim,
                 preproc, img_acc, qmaxpt, qmax);
@@ -276,11 +381,11 @@ namespace cpoz
                 img_acc.copyTo(m_img_acc);
                 m_img_acc_pt = qallmaxpt;
 #endif
-                qjjmax = jj;
+                qjjjmax = jjj;
             }
         }
 
-        rang = static_cast<double>(qjjmax * m_match_params.ang_step);
+        rang = static_cast<double>(qjjjmax * m_match_params.ang_step);
 
         // do a single match at larger scale
         // to get better result for X,Y match offset
@@ -291,7 +396,7 @@ namespace cpoz
         Point qbigmaxpt;
         double qbigmax;
         match_single_template(
-            m_vtemplates_big[qjjmax],
+            m_vtemplates_big[qjjjmax],
             m_acc_fulldim_big,
             m_acc_halfdim_big,
             preproc_big, img_acc_big, qbigmaxpt, qbigmax);
@@ -299,7 +404,7 @@ namespace cpoz
         Size szacc = img_acc_big.size();
         Point ptctr = { szacc.width / 2, szacc.height / 2 };
         roffset = qbigmaxpt - ptctr;
-
+#if 0
         // un-rotate offset by matched orientation angle
         Point p0 = roffset;
         double rang_rad = rang * CV_PI / 180.0;
@@ -307,6 +412,7 @@ namespace cpoz
         double sin0 = sin(rang_rad);
         roffset.x = static_cast<int>( p0.x * cos0 + p0.y * sin0);
         roffset.y = static_cast<int>(-p0.x * sin0 + p0.y * cos0);
+#endif
     }
 
 
@@ -356,7 +462,6 @@ namespace cpoz
         std::vector<Point2d>& rveccs = m_scan_cos_sin[offset_index];
 
         // project all measurements using ideal measurement angles
-        // also determine bounds of the X,Y coordinates
         rvpts.resize(rscan.size());
         for (size_t nn = 0; nn < rvpts.size(); nn++)
         {
@@ -387,7 +492,7 @@ namespace cpoz
         // use appropriate data index pointer to fill in each lookup table
         for (const auto& r : rpreproc.segments)
         {
-            for (const auto& rpt : r.line)
+            for (const auto& rpt : r.lined)
             {
                 // stuff point into lookup table and advance pointer
                 uint8_t angcode = r.angcode;
@@ -414,13 +519,14 @@ namespace cpoz
 
         for (const auto& rseg : rpreproc.segments)
         {
-            for (const auto& rlinept : rseg.line)
+            for (const auto& rlinept : rseg.lined)
             {
+                Point pt = { static_cast<int>(rlinept.x + 0.5), static_cast<int>(rlinept.y + 0.5) };
                 for (const auto& rmatchpt : rtemplate[rseg.angcode])
                 {
                     // translate the vote pt and see
                     // if it falls in accumulator image
-                    Point votept = rlinept - rmatchpt;
+                    Point votept = pt - rmatchpt;
                     if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
                         Point e = votept + ctr_offset;

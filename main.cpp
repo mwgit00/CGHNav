@@ -34,6 +34,7 @@
 #include "FakeLidar.h"
 #include "FakeRobot.h"
 #include "GHNav.h"
+#include "util.h"
 
 
 using namespace cv;
@@ -273,12 +274,15 @@ void loop(void)
             home_pos = theRobot.get_xypos();
             home_ang = theRobot.get_ang();
             home_ang_vec = theRobot.get_ang_vec();
+            match_angle = 0.0;
+            match_offset = { 0,0 };
             ghnav.update_match_templates(theLidar.get_last_scan());
             is_resync = false;
         }
 
         // check match against the current waypoint
-        ghnav.perform_match(theLidar.get_last_scan(), match_offset, match_angle);
+        int ia = static_cast<int>(match_angle);
+        ghnav.perform_match(theLidar.get_last_scan(), -10 + ia, 10 + ia, match_offset, match_angle);
 
         // now update the screen view...
         
@@ -290,10 +294,48 @@ void loop(void)
         cpoz::GHNav::T_PREPROC preproc;
         ghnav.preprocess_scan(preproc, theLidar.get_last_scan(), 0, scale_fac);
 
+        
+        //ghnav.rotate_preprocessed_scan(preproc, 30.0);
+        //ghnav.rotate_preprocessed_scan(preproc, 15.0);
+        //ghnav.rotate_preprocessed_scan(preproc, 15.0);
+#if 0
+        Mat img_foo;
+        Point img_foo_pt;
+        ghnav.draw_preprocessed_scan(img_foo, img_foo_pt, preproc, 1);
+        circle(img_foo, img_foo_pt, 3, 255, 1);
+        imwrite("foo0.png", img_foo);
+        double zang = 15.0;
+        for (auto& r : preproc.segments)
+        {
+            for (auto& rr : r.lined)
+            {
+                double cos0 = cos((zang) * CV_PI / 180.0);
+                double sin0 = sin((zang) * CV_PI / 180.0);
+                double cosd = cos((r.angdeg - zang) *CV_PI / 180.0);
+                double sind = sin((r.angdeg - zang) *CV_PI / 180.0);
+                Point2d rnew;
+                rnew.x = rr.x * ( cos0) + rr.y * (sin0);
+                rnew.y = rr.x * (-sin0) + rr.y * (cos0);
+                Point pa = rnew;
+                pa = pa + img_foo_pt;
+                Point2d dpq = { cosd * 8.0, sind * 8.0 };
+                Point pq = dpq;
+                line(img_foo, pa, img_foo_pt, 192, 1);
+                line(img_foo, pa, pa + pq, 255, 1);
+                break;
+            }
+        }
+        imwrite("foo1.png", img_foo);
+        ghnav.rotate_preprocessed_scan(preproc, 15.0);
+        ghnav.draw_preprocessed_scan(img_foo, img_foo_pt, preproc, 1);
+        imwrite("foo2.png", img_foo);
+        break;
+#endif
+
         // draw "snapshot" image of current LIDAR scan (gray)
         Mat img_current_scan;
         Point img_current_scan_pt0;
-        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc);
+        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc, 4);
         Rect mroi = { {0,0}, img_current_scan.size() };
         img_current_scan.copyTo(img_viewer(mroi));
 
@@ -346,16 +388,16 @@ void loop(void)
             // show where the robot thinks it is relative to current home point
             // also draw a line showing what robot thinks its orientation is
             int fac = static_cast<int>(1.0 / ghnav.get_match_params().resize_big);
-            Point p0 = match_offset * fac;
+            Point p0 = (-match_offset) * fac;
             Point prot;
             double rang_rad = home_ang * CV_PI / 180.0;
             double cos0 = cos(rang_rad);
             double sin0 = sin(rang_rad);
-            prot.x = static_cast<int>(p0.x * cos0 - p0.y * sin0);
-            prot.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
-            Point guesspt = home_pos - prot;
+            prot.x = static_cast<int>(p0.x * cos0 + p0.y * sin0);
+            prot.y = static_cast<int>(p0.x * -sin0 + p0.y * cos0);
+            Point guesspt = theRobot.get_xypos();// home_pos - prot;
             circle(img_viewer_bgr, guesspt, 4, SCA_RED, -1);
-            rang_rad = (home_ang - match_angle) * CV_PI / 180.0;
+            rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
             int dx = static_cast<int>(cos(rang_rad) * 12);
             int dy = static_cast<int>(sin(rang_rad) * 12);
             line(img_viewer_bgr, guesspt, guesspt + Point({ dx, dy }), SCA_RED, 2);
@@ -388,6 +430,12 @@ void loop(void)
 int main()
 {
     std::cout << stitle << std::endl;
+#if 0
+    std::list<std::string> lfiles;
+    get_dir_list(MOVIE_PATH, "*.png", lfiles);
+    make_video(20, MOVIE_PATH, "demo.mov", VideoWriter::fourcc('m', 'p', '4', 'v'), lfiles);
+#else
     loop();
+#endif
     return 0;
 }

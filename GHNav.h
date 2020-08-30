@@ -51,7 +51,7 @@ namespace cpoz
 
         typedef struct _T_MATCH_PARAMS_struct
         {
-            size_t ang_ct;          ///< number of angles in 360 degree search
+            int ang_ct;          ///< number of angles in 360 degree search
             double ang_step;        ///< angle step in 360 degree search
             double resize;          ///< resize (shrink) factor
             double resize_big;      ///< resize (shrink) factor for big templates
@@ -60,23 +60,25 @@ namespace cpoz
             _T_MATCH_PARAMS_struct() :
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
-                resize(0.125),      // shrink factor for rotation angle match
-                resize_big(0.5),    // srhink factor for final translation match
+                resize(1.0),      // shrink factor for rotation angle match
+                resize_big(1.0),    // srhink factor for final translation match
                 angcode_ct(8),      // 8 angle codes is good starting point
-                acc_halfdim(20)     // bigger values slow down matching process
+                acc_halfdim(40)     // bigger values slow down matching process
             {}
         } T_MATCH_PARAMS;
 
 
         typedef struct
         {
+            double angdeg;
             uint8_t angcode;
-            std::list<cv::Point> line;
+            std::list<cv::Point2d> lined;
         } T_PREPROC_SEGMENT;
 
 
         typedef struct
         {
+            size_t ct;
             std::vector<size_t> angcode_cts;        ///< number of occurrences of each angle code
             std::list<T_PREPROC_SEGMENT> segments;  ///< list of encoded line segments
         } T_PREPROC;
@@ -84,8 +86,6 @@ namespace cpoz
         
         typedef std::vector<std::vector<cv::Point>> T_TEMPLATE;
 
-        static uint8_t convert_xy_to_angcode(int x, int y, uint8_t ct);
-        
         static void plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist);
         
         
@@ -111,10 +111,16 @@ namespace cpoz
             const GHNav::T_PREPROC& rpreproc,
             const int shrink = 1);
 
+        void rotate_preprocessed_scan(
+            GHNav::T_PREPROC& rpreproc,
+            const double angdegstep);
+
         void update_match_templates(const std::vector<double>& rscan);
 
         void perform_match(
             const std::vector<double>& rscan,
+            const int a1,
+            const int a2,
             cv::Point& roffset,
             double& rang);
 
