@@ -290,52 +290,13 @@ void loop(void)
         img_orig.copyTo(img_viewer);
 
         // preprocess the scan for drawing
-        double scale_fac = ghnav.get_match_params().resize;
         cpoz::GHNav::T_PREPROC preproc;
-        ghnav.preprocess_scan(preproc, theLidar.get_last_scan(), 0, scale_fac);
+        ghnav.preprocess_scan(theLidar.get_last_scan(), preproc);
 
-        
-        //ghnav.rotate_preprocessed_scan(preproc, 30.0);
-        //ghnav.rotate_preprocessed_scan(preproc, 15.0);
-        //ghnav.rotate_preprocessed_scan(preproc, 15.0);
-#if 0
-        Mat img_foo;
-        Point img_foo_pt;
-        ghnav.draw_preprocessed_scan(img_foo, img_foo_pt, preproc, 1);
-        circle(img_foo, img_foo_pt, 3, 255, 1);
-        imwrite("foo0.png", img_foo);
-        double zang = 15.0;
-        for (auto& r : preproc.segments)
-        {
-            for (auto& rr : r.lined)
-            {
-                double cos0 = cos((zang) * CV_PI / 180.0);
-                double sin0 = sin((zang) * CV_PI / 180.0);
-                double cosd = cos((r.angdeg - zang) *CV_PI / 180.0);
-                double sind = sin((r.angdeg - zang) *CV_PI / 180.0);
-                Point2d rnew;
-                rnew.x = rr.x * ( cos0) + rr.y * (sin0);
-                rnew.y = rr.x * (-sin0) + rr.y * (cos0);
-                Point pa = rnew;
-                pa = pa + img_foo_pt;
-                Point2d dpq = { cosd * 8.0, sind * 8.0 };
-                Point pq = dpq;
-                line(img_foo, pa, img_foo_pt, 192, 1);
-                line(img_foo, pa, pa + pq, 255, 1);
-                break;
-            }
-        }
-        imwrite("foo1.png", img_foo);
-        ghnav.rotate_preprocessed_scan(preproc, 15.0);
-        ghnav.draw_preprocessed_scan(img_foo, img_foo_pt, preproc, 1);
-        imwrite("foo2.png", img_foo);
-        break;
-#endif
-
-        // draw "snapshot" image of current LIDAR scan (gray)
+        // draw shrunken "snapshot" image of current LIDAR scan (gray)
         Mat img_current_scan;
         Point img_current_scan_pt0;
-        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc, 4);
+        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc, 3);
         Rect mroi = { {0,0}, img_current_scan.size() };
         img_current_scan.copyTo(img_viewer(mroi));
 
@@ -371,31 +332,36 @@ void loop(void)
         {
             // print robot position in image
             std::ostringstream oss;
-            oss << " BotXY@ = " << std::setw(4) << ibotpos.x << ", " << ibotpos.y;
-            oss << "  " << std::fixed << std::setprecision(1) << theRobot.get_ang();
+            oss << " BotXY. = ";
+            oss << std::setfill('0') << std::setw(4) << ibotpos.x << ", ";
+            oss << std::setfill('0') << std::setw(4) << ibotpos.y << ", ";
+            oss << std::fixed << std::setprecision(1) << theRobot.get_ang();
             putText(img_viewer_bgr, oss.str(), { 0, 400 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLACK, 2);
         }
 
         {
             // print latest position and orientation match
             std::ostringstream oss;
-            oss << " MATCH = " << std::setw(4) << match_offset.x << ", " << match_offset.y;
-            oss << "  " << std::fixed << std::setprecision(1) << match_angle;
+            oss << " MATCH = ";
+            oss << std::setfill('0') << std::setw(4) << match_offset.x << ", ";
+            oss << std::setfill('0') << std::setw(4) << match_offset.y << ", ";
+            double xang = match_angle + home_ang;
+            xang = (xang > 360.0) ? xang - 360.0 : xang;
+            oss << std::fixed << std::setprecision(1) << xang;
             putText(img_viewer_bgr, oss.str(), { 0, 430 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
         }
 
         {
             // show where the robot thinks it is relative to current home point
             // also draw a line showing what robot thinks its orientation is
-            int fac = static_cast<int>(1.0 / ghnav.get_match_params().resize_big);
-            Point p0 = (-match_offset) * fac;
+            Point p0 = -match_offset;
             Point prot;
-            double rang_rad = home_ang * CV_PI / 180.0;
+            double rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
             double cos0 = cos(rang_rad);
             double sin0 = sin(rang_rad);
-            prot.x = static_cast<int>(p0.x * cos0 + p0.y * sin0);
-            prot.y = static_cast<int>(p0.x * -sin0 + p0.y * cos0);
-            Point guesspt = theRobot.get_xypos();// home_pos - prot;
+            prot.x = static_cast<int>(p0.x * cos0 + p0.y * -sin0);
+            prot.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
+            Point guesspt = home_pos + prot;
             circle(img_viewer_bgr, guesspt, 4, SCA_RED, -1);
             rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
             int dx = static_cast<int>(cos(rang_rad) * 12);

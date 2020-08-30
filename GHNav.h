@@ -53,15 +53,11 @@ namespace cpoz
         {
             int ang_ct;          ///< number of angles in 360 degree search
             double ang_step;        ///< angle step in 360 degree search
-            double resize;          ///< resize (shrink) factor
-            double resize_big;      ///< resize (shrink) factor for big templates
             uint8_t angcode_ct;     ///< number of angle codes to use
             int acc_halfdim;        ///< half dimension of Hough accumulator bin image
             _T_MATCH_PARAMS_struct() :
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
-                resize(1.0),      // shrink factor for rotation angle match
-                resize_big(1.0),    // srhink factor for final translation match
                 angcode_ct(8),      // 8 angle codes is good starting point
                 acc_halfdim(40)     // bigger values slow down matching process
             {}
@@ -78,7 +74,6 @@ namespace cpoz
 
         typedef struct
         {
-            size_t ct;
             std::vector<size_t> angcode_cts;        ///< number of occurrences of each angle code
             std::list<T_PREPROC_SEGMENT> segments;  ///< list of encoded line segments
         } T_PREPROC;
@@ -100,16 +95,14 @@ namespace cpoz
         const std::vector<double>& get_scan_angs(void) const { return m_scan_angs; }
 
         void preprocess_scan(
-            T_PREPROC& rpreproc,
             const std::vector<double>& rscan,
-            const size_t offset_index,
-            const double resize);
+            T_PREPROC& rpreproc);
 
         void draw_preprocessed_scan(
             cv::Mat& rimg,
             cv::Point& rpt0,
             const GHNav::T_PREPROC& rpreproc,
-            const int shrink = 1);
+            const int shrink);
 
         void rotate_preprocessed_scan(
             GHNav::T_PREPROC& rpreproc,
@@ -129,20 +122,19 @@ namespace cpoz
         void init_scan_angs(void);
 
         void convert_scan_to_pts(
-            std::vector<cv::Point>& rvec,
             const std::vector<double>& rscan,
-            const size_t offset_index,
-            const double resize);
+            std::vector<cv::Point>& rvec);
 
         void create_template(
             T_TEMPLATE& rtemplate,
             const T_PREPROC& rpreproc);
 
         void match_single_template(
+            const T_PREPROC& rpreproc,
             const T_TEMPLATE& rtemplate,
             const int acc_dim,
             const int acc_halfdim,
-            const T_PREPROC& rpreproc,
+            const int div,
             cv::Mat& rimg_acc,
             cv::Point& rmaxpt,
             double& rmax);
@@ -166,12 +158,13 @@ namespace cpoz
 
         double m_scan_rng_thr;  ///< "closeness" threshold calculated from scan params
 
-        std::vector<double> m_scan_angs;    ///< ideal scan angles
-        
-        std::vector<std::vector<cv::Point2d>> m_scan_cos_sin; ///< ideal cos and sin for scan angles
+        double m_cos0;  ///< cos of search angle step
+        double m_sin0;  ///< sin of search angle step
+
+        std::vector<double> m_scan_angs;            ///< ideal scan angles
+        std::vector<cv::Point2d> m_scan_cos_sin;    ///< cos and sin for ideal scan angles
 
         std::vector<T_TEMPLATE> m_vtemplates;
-        std::vector<T_TEMPLATE> m_vtemplates_big;
     };
 }
 

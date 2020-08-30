@@ -90,16 +90,8 @@ namespace cpoz
 
             // draw ray from real-world position
             // use noisy measurements for angle and length of ray
-            if (nn == 0)
-            {
-                line(rimg, world_pos, world_pos + vpts[nn], { 255,255,255 });
-                circle(rimg, world_pos + vpts[nn], 3, { 255,255,255 }, -1);
-            }
-            else
-            {
-                line(rimg, world_pos, world_pos + vpts[nn], rcolor);
-                circle(rimg, world_pos + vpts[nn], 3, rcolor, -1);
-            }
+            line(rimg, world_pos, world_pos + vpts[nn], rcolor);
+            circle(rimg, world_pos + vpts[nn], 3, rcolor, -1);
         }
     }
 

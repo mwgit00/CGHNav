@@ -116,33 +116,33 @@ namespace cpoz
         // init full width/height of accumulator image for angle search
         m_acc_fulldim = (m_match_params.acc_halfdim * 2) + 1;
 
-        double rfac = m_match_params.resize_big / m_match_params.resize;
-        m_acc_halfdim_big = static_cast<int>(rfac) * m_match_params.acc_halfdim;
+        m_acc_halfdim_big = m_match_params.acc_halfdim;
         m_acc_fulldim_big = ((m_acc_halfdim_big + 0) * 2) + 1;
 
         // if adjacent measurements are too far from each other
         // then they are likely not on the same surface and can be ignored
         // the threshold is distance between two measurements at max LIDAR range
         m_scan_rng_thr = m_scan_params.max_rng * tan(m_scan_params.ang_step * CONV_DEG2RAD);
+
+        // init the sin and cos for the orientation search step angle
+        double angradstep = m_match_params.ang_step * CONV_DEG2RAD;
+        m_cos0 = cos(angradstep);
+        m_sin0 = sin(angradstep);
     }
 
 
     void GHNav::preprocess_scan(
-        T_PREPROC& rpreproc,
         const std::vector<double>& rscan,
-        const size_t offset_index,
-        const double resize)
+        T_PREPROC& rpreproc)
     {
         std::vector<Point> vpts;
-        convert_scan_to_pts(vpts, rscan, offset_index, resize);
+        convert_scan_to_pts(rscan, vpts);
 
-        rpreproc.ct = 0;
         rpreproc.angcode_cts.clear();
         rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
 
         // convert range threshold for quick integer comparison without square root
-        double rng_thr_resize = m_scan_rng_thr * resize;
-        const int dthr = static_cast<int>(rng_thr_resize * rng_thr_resize);
+        const int dthr = static_cast<int>(m_scan_rng_thr * m_scan_rng_thr);
 
         for (size_t nn = 0; nn < (vpts.size() - 1); nn++)
         {
@@ -178,7 +178,6 @@ namespace cpoz
                     }
                     
                     rpreproc.angcode_cts[angcode] += rpreproc.segments.back().lined.size();
-                    rpreproc.ct += rpreproc.segments.back().lined.size();
                 }
             }
         }
@@ -231,116 +230,48 @@ namespace cpoz
         const double angdegstep)
 
     {
-        double angradstep = angdegstep * CONV_DEG2RAD;
-        double cos0 = cos(angradstep);
-        double sin0 = sin(angradstep);
-
-        rpreproc.ct = 0;
         rpreproc.angcode_cts.clear();
         rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
 
         for (auto& r : rpreproc.segments)
         {
+            // rotate segment angle backwards
             r.angdeg -= angdegstep;
-            if (r.angdeg > 360.0) r.angdeg -= 360.0;
             if (r.angdeg < 0.0) r.angdeg += 360.0;
 
+            // then convert it to angle code
             r.angcode = encode_ang(r.angdeg, m_match_params.angcode_ct);
             rpreproc.angcode_cts[r.angcode] += r.lined.size();
-            rpreproc.ct += r.lined.size();
 
+            // then rotate all the segment's line points
+            // about (0,0) by the angle step
             for (auto& rr : r.lined)
             {
                 Point2d rnew;
-#if 1
-                // this with angdeg works for drawing
-                rnew.x = rr.x * ( cos0) + rr.y * (sin0);
-                rnew.y = rr.x * (-sin0) + rr.y * (cos0);
-#else
-                rnew.x = rr.x * (cos0) + rr.y * (-sin0);
-                rnew.y = rr.x * (sin0) + rr.y * ( cos0);
-#endif
+                rnew.x = rr.x * ( m_cos0) + rr.y * (m_sin0);
+                rnew.y = rr.x * (-m_sin0) + rr.y * (m_cos0);
                 rr = rnew;
             }
         }
     }
 
 
-#if 0
-    void GHNav::update_match_templates(const std::vector<double>& rscan)
-    {
-        m_vtemplates.clear();
-        m_vtemplates.resize(m_match_params.ang_ct);
-
-        // loop through all angles
-        for (size_t ii = 0; ii < m_match_params.ang_ct; ii++)
-        {
-            // generate rotated representation of scan
-            // and make a template for it
-            T_PREPROC preproc;
-            preprocess_scan(preproc, rscan, ii, m_match_params.resize);
-            create_template(m_vtemplates[ii], preproc);
-        }
-
-        m_vtemplates_big.clear();
-        m_vtemplates_big.resize(m_match_params.ang_ct);
-
-        // loop through all angles
-        for (size_t ii = 0; ii < m_match_params.ang_ct; ii++)
-        {
-            // generate rotated representation of scan
-            // and make a template for it
-            T_PREPROC preproc;
-            preprocess_scan(preproc, rscan, ii, m_match_params.resize_big);
-            create_template(m_vtemplates_big[ii], preproc);
-        }
-    }
-#endif
-
     void GHNav::update_match_templates(const std::vector<double>& rscan)
     {
         T_PREPROC preproc;
         m_vtemplates.clear();
         m_vtemplates.resize(m_match_params.ang_ct);
-        preprocess_scan(preproc, rscan, 0, m_match_params.resize);
-
-        size_t foo_ct = preproc.ct;
+        preprocess_scan(rscan, preproc);
 
         // loop through all angles
         for (size_t ii = 0; ii < m_match_params.ang_ct; ii++)
         {
-            // generate rotated representation of scan
-            // and make a template for it
+            // make a template for it
+            // rotate the preprocessed scan by one angle step
             create_template(m_vtemplates[ii], preproc);
             rotate_preprocessed_scan(preproc, m_match_params.ang_step);
-            if (preproc.ct != foo_ct)
-            {
-                ii = 5000;
-            }
-        }
-
-        T_PREPROC preproc_big;
-        m_vtemplates_big.clear();
-        m_vtemplates_big.resize(m_match_params.ang_ct);
-        preprocess_scan(preproc_big, rscan, 0, m_match_params.resize_big);
-
-        foo_ct = preproc_big.ct;
-
-        // loop through all angles
-        for (size_t ii = 0; ii < m_match_params.ang_ct; ii++)
-        {
-            // generate rotated representation of scan
-            // and make a template for it
-            create_template(m_vtemplates_big[ii], preproc_big);
-            rotate_preprocessed_scan(preproc_big, m_match_params.ang_step);
-            if (preproc_big.ct != foo_ct)
-            {
-                ii = 5000;
-            }
         }
     }
-
-
 
 
     void GHNav::perform_match(
@@ -350,9 +281,9 @@ namespace cpoz
         cv::Point& roffset,
         double& rang)
     {
-        // preprocess the input scan (use 0 angle)
+        // preprocess the input scan prior to matching
         T_PREPROC preproc;
-        preprocess_scan(preproc, rscan, 0, m_match_params.resize);
+        preprocess_scan(rscan, preproc);
 
         int qjjjmax = 0;
         double qallmax = 0.0;
@@ -368,10 +299,11 @@ namespace cpoz
             int jjj = (jj + m_match_params.ang_ct + m_match_params.ang_ct) % m_match_params.ang_ct;
 
             match_single_template(
+                preproc,
                 m_vtemplates[jjj],
                 m_acc_fulldim,
-                m_match_params.acc_halfdim,
-                preproc, img_acc, qmaxpt, qmax);
+                m_match_params.acc_halfdim, 2,
+                img_acc, qmaxpt, qmax);
 
             if (qmax > qallmax)
             {
@@ -386,33 +318,7 @@ namespace cpoz
         }
 
         rang = static_cast<double>(qjjjmax * m_match_params.ang_step);
-
-        // do a single match at larger scale
-        // to get better result for X,Y match offset
-        T_PREPROC preproc_big;
-        preprocess_scan(preproc_big, rscan, 0, m_match_params.resize_big);
-
-        Mat img_acc_big;
-        Point qbigmaxpt;
-        double qbigmax;
-        match_single_template(
-            m_vtemplates_big[qjjjmax],
-            m_acc_fulldim_big,
-            m_acc_halfdim_big,
-            preproc_big, img_acc_big, qbigmaxpt, qbigmax);
-
-        Size szacc = img_acc_big.size();
-        Point ptctr = { szacc.width / 2, szacc.height / 2 };
-        roffset = qbigmaxpt - ptctr;
-#if 0
-        // un-rotate offset by matched orientation angle
-        Point p0 = roffset;
-        double rang_rad = rang * CV_PI / 180.0;
-        double cos0 = cos(rang_rad);
-        double sin0 = sin(rang_rad);
-        roffset.x = static_cast<int>( p0.x * cos0 + p0.y * sin0);
-        roffset.y = static_cast<int>(-p0.x * sin0 + p0.y * cos0);
-#endif
+        roffset = qallmaxpt;
     }
 
 
@@ -423,51 +329,33 @@ namespace cpoz
 
     void GHNav::init_scan_angs(void)
     {
-        // flush old data
-        m_scan_angs.clear();
-        m_scan_cos_sin.clear();
+        // set array sizes before filling them in
+        m_scan_angs.resize(m_scan_params.ang_ct);
+        m_scan_cos_sin.resize(m_scan_params.ang_ct);
 
         // generate ideal scan angles
-        m_scan_angs.resize(m_scan_params.ang_ct);
+        // and lookup table for sin and cos
         double ang = m_scan_params.ang_min;
         for (size_t ii = 0; ii < m_scan_params.ang_ct; ii++)
         {
             m_scan_angs[ii] = ang;
+            double ang_rad = ang * CONV_DEG2RAD;
+            m_scan_cos_sin[ii] = cv::Point2d(cos(ang_rad), sin(ang_rad));
             ang += m_scan_params.ang_step;
-        }
-
-        // generate lookup tables for cosine and sine
-        // for a range of offsets from the ideal scan angles
-        double ang_offset = 0.0;
-        for (size_t nn = 0; nn < m_match_params.ang_ct; nn++)
-        {
-            m_scan_cos_sin.push_back({});
-            for (const auto& rang : m_scan_angs)
-            {
-                double ang_rad = (rang + ang_offset) * CONV_DEG2RAD;
-                m_scan_cos_sin.back().push_back(cv::Point2d(cos(ang_rad), sin(ang_rad)));
-            }
-            ang_offset += m_match_params.ang_step;
         }
     }
 
 
     void GHNav::convert_scan_to_pts(
-        std::vector<cv::Point>& rvpts,
         const std::vector<double>& rscan,
-        const size_t offset_index,
-        const double resize)
+        std::vector<cv::Point>& rvpts)
     {
-        // look up the desired cos and sin table
-        std::vector<Point2d>& rveccs = m_scan_cos_sin[offset_index];
-
-        // project all measurements using ideal measurement angles
         rvpts.resize(rscan.size());
         for (size_t nn = 0; nn < rvpts.size(); nn++)
         {
-            double mag = rscan[nn] * resize;
-            int dx = static_cast<int>((rveccs[nn].x * mag) + 0.5);
-            int dy = static_cast<int>((rveccs[nn].y * mag) + 0.5);
+            double mag = rscan[nn];
+            int dx = static_cast<int>((m_scan_cos_sin[nn].x * mag) + 0.5);
+            int dy = static_cast<int>((m_scan_cos_sin[nn].y * mag) + 0.5);
             rvpts[nn] = { dx, dy };
         }
     }
@@ -504,10 +392,11 @@ namespace cpoz
 
 
     void GHNav::match_single_template(
+        const T_PREPROC& rpreproc,
         const T_TEMPLATE& rtemplate,
         const int acc_dim,
         const int acc_halfdim,
-        const T_PREPROC& rpreproc,
+        const int div,
         cv::Mat& rimg_acc,
         cv::Point& rmaxpt,
         double& rmax)
@@ -524,12 +413,12 @@ namespace cpoz
                 Point pt = { static_cast<int>(rlinept.x + 0.5), static_cast<int>(rlinept.y + 0.5) };
                 for (const auto& rmatchpt : rtemplate[rseg.angcode])
                 {
-                    // translate the vote pt and see
+                    // translate the vote point and see
                     // if it falls in accumulator image
                     Point votept = pt - rmatchpt;
                     if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
-                        Point e = votept + ctr_offset;
+                        Point e = (votept + ctr_offset) / div;
                         uint16_t upix = rimg_acc.at<uint16_t>(e) + 1;
                         rimg_acc.at<uint16_t>(e) = upix;
                     }
