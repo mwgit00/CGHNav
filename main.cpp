@@ -354,7 +354,7 @@ void loop(void)
         {
             // show where the robot thinks it is relative to current home point
             // also draw a line showing what robot thinks its orientation is
-            Point p0 = -match_offset;
+            Point p0 = (Point(16,16)-match_offset) * ghnav.get_match_params().acc_div;
             Point prot;
             double rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
             double cos0 = cos(rang_rad);

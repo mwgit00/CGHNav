@@ -116,9 +116,6 @@ namespace cpoz
         // init full width/height of accumulator image for angle search
         m_acc_fulldim = (m_match_params.acc_halfdim * 2) + 1;
 
-        m_acc_halfdim_big = m_match_params.acc_halfdim;
-        m_acc_fulldim_big = ((m_acc_halfdim_big + 0) * 2) + 1;
-
         // if adjacent measurements are too far from each other
         // then they are likely not on the same surface and can be ignored
         // the threshold is distance between two measurements at max LIDAR range
@@ -268,7 +265,7 @@ namespace cpoz
         {
             // make a template for it
             // rotate the preprocessed scan by one angle step
-            create_template(m_vtemplates[ii], preproc);
+            create_template(preproc, m_vtemplates[ii]);
             rotate_preprocessed_scan(preproc, m_match_params.ang_step);
         }
     }
@@ -285,7 +282,7 @@ namespace cpoz
         T_PREPROC preproc;
         preprocess_scan(rscan, preproc);
 
-        int qjjjmax = 0;
+        int qiimax = 0;
         double qallmax = 0.0;
         Point qallmaxpt = { 0,0 };
 
@@ -296,13 +293,17 @@ namespace cpoz
             Point qmaxpt;
             double qmax;
 
-            int jjj = (jj + m_match_params.ang_ct + m_match_params.ang_ct) % m_match_params.ang_ct;
+            // convert loop index so it will be in array bounds
+            int ii = (jj + m_match_params.ang_ct + m_match_params.ang_ct) % m_match_params.ang_ct;
 
+            // do a match with the voting points scaled down by the "div" factor
+            // this scaling helps remove some of the jitter in the bin counts
+            // at the expense of less resolution in the position match
             match_single_template(
                 preproc,
-                m_vtemplates[jjj],
+                m_vtemplates[ii],
                 m_acc_fulldim,
-                m_match_params.acc_halfdim, 2,
+                m_match_params.acc_halfdim, m_match_params.acc_div,
                 img_acc, qmaxpt, qmax);
 
             if (qmax > qallmax)
@@ -313,11 +314,11 @@ namespace cpoz
                 img_acc.copyTo(m_img_acc);
                 m_img_acc_pt = qallmaxpt;
 #endif
-                qjjjmax = jjj;
+                qiimax = ii;
             }
         }
 
-        rang = static_cast<double>(qjjjmax * m_match_params.ang_step);
+        rang = static_cast<double>(qiimax * m_match_params.ang_step);
         roffset = qallmaxpt;
     }
 
@@ -362,8 +363,8 @@ namespace cpoz
 
 
     void GHNav::create_template(
-        T_TEMPLATE& rtemplate,
-        const T_PREPROC& rpreproc)
+        const T_PREPROC& rpreproc,
+        T_TEMPLATE& rtemplate)
     {
         // create a data index pointer array for each angle code lookup table
         std::vector<Point*> vppt(m_match_params.angcode_ct);

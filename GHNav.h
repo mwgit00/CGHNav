@@ -51,15 +51,17 @@ namespace cpoz
 
         typedef struct _T_MATCH_PARAMS_struct
         {
-            int ang_ct;          ///< number of angles in 360 degree search
+            int ang_ct;             ///< number of angles in 360 degree search
             double ang_step;        ///< angle step in 360 degree search
             uint8_t angcode_ct;     ///< number of angle codes to use
             int acc_halfdim;        ///< half dimension of Hough accumulator bin image
+            int acc_div;            ///< bin downsizing divider
             _T_MATCH_PARAMS_struct() :
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
-                angcode_ct(8),      // 8 angle codes is good starting point
-                acc_halfdim(40)     // bigger values slow down matching process
+                angcode_ct(8),      // 8 angle codes seems sufficient ???
+                acc_halfdim(80),    // bigger values slow down matching process
+                acc_div(2)          // 2 or 3 seems to help a lot, 4 may be too much ???
             {}
         } T_MATCH_PARAMS;
 
@@ -126,8 +128,8 @@ namespace cpoz
             std::vector<cv::Point>& rvec);
 
         void create_template(
-            T_TEMPLATE& rtemplate,
-            const T_PREPROC& rpreproc);
+            const T_PREPROC& rpreproc,
+            T_TEMPLATE& rtemplate);
 
         void match_single_template(
             const T_PREPROC& rpreproc,
@@ -153,18 +155,15 @@ namespace cpoz
         T_MATCH_PARAMS m_match_params;
 
         int m_acc_fulldim;      ///< accumulator bin image size calculated from match params
-        int m_acc_halfdim_big;  ///< "big" accumulator bin image half-size calculated from match params
-        int m_acc_fulldim_big;  ///< "big" accumulator bin image size calculated from match params
 
         double m_scan_rng_thr;  ///< "closeness" threshold calculated from scan params
-
-        double m_cos0;  ///< cos of search angle step
-        double m_sin0;  ///< sin of search angle step
+        double m_cos0;          ///< cos of search angle step
+        double m_sin0;          ///< sin of search angle step
 
         std::vector<double> m_scan_angs;            ///< ideal scan angles
         std::vector<cv::Point2d> m_scan_cos_sin;    ///< cos and sin for ideal scan angles
 
-        std::vector<T_TEMPLATE> m_vtemplates;
+        std::vector<T_TEMPLATE> m_vtemplates;       ///< templates for orientation search
     };
 }
 
