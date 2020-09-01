@@ -402,10 +402,10 @@ namespace cpoz
         cv::Point& rmaxpt,
         double& rmax)
     {
-        const Point ctr_offset = { acc_halfdim, acc_halfdim };
+        const Point ctr_offset = { acc_halfdim / div, acc_halfdim / div };
 
         // create new vote accumulator image
-        rimg_acc = Mat::zeros(acc_dim, acc_dim, CV_16U);
+        rimg_acc = Mat::zeros(acc_dim / div, acc_dim / div, CV_16U);
 
         for (const auto& rseg : rpreproc.segments)
         {
@@ -419,7 +419,7 @@ namespace cpoz
                     Point votept = pt - rmatchpt;
                     if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
-                        Point e = (votept + ctr_offset) / div;
+                        Point e = (votept / div) + ctr_offset;
                         uint16_t upix = rimg_acc.at<uint16_t>(e) + 1;
                         rimg_acc.at<uint16_t>(e) = upix;
                     }
@@ -427,7 +427,14 @@ namespace cpoz
             }
         }
 
+        // blur the heck out of the bins ???
+        // there should be one obvious max and blurring should help find it
+        GaussianBlur(rimg_acc, rimg_acc, { 13, 13 }, 0, 0);
+
         // finally search for max in bin
-        minMaxLoc(rimg_acc, nullptr, &rmax, nullptr, &rmaxpt);
+        // apply to (0,0) offset to point with max
+        Point maxpt;
+        minMaxLoc(rimg_acc, nullptr, &rmax, nullptr, &maxpt);
+        rmaxpt = maxpt - ctr_offset;
     }
 }

@@ -329,6 +329,22 @@ void loop(void)
         int angy = static_cast<int>(angvec.y * r * 0.8);
         line(img_viewer_bgr, ibotpos, ibotpos + Point{ angx, angy }, SCA_GREEN, 3);
 
+        // show where the robot thinks it is relative to current home point
+        // also draw a line showing what robot thinks its orientation is
+        Point p0 = (-match_offset) * ghnav.get_match_params().acc_div;
+        Point prot;
+        double rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
+        double cos0 = cos(rang_rad);
+        double sin0 = sin(rang_rad);
+        prot.x = static_cast<int>(p0.x * cos0 + p0.y * -sin0);
+        prot.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
+        Point guesspt = home_pos + prot;
+        circle(img_viewer_bgr, guesspt, 4, SCA_RED, -1);
+        rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
+        int dx = static_cast<int>(cos(rang_rad) * 12);
+        int dy = static_cast<int>(sin(rang_rad) * 12);
+        line(img_viewer_bgr, guesspt, guesspt + Point({ dx, dy }), SCA_RED, 2);
+
         {
             // print robot position in image
             std::ostringstream oss;
@@ -343,43 +359,27 @@ void loop(void)
             // print latest position and orientation match
             std::ostringstream oss;
             oss << " MATCH = ";
-            oss << std::setfill('0') << std::setw(4) << match_offset.x << ", ";
-            oss << std::setfill('0') << std::setw(4) << match_offset.y << ", ";
+            oss << std::setfill('0') << std::setw(4) << guesspt.x << ", ";
+            oss << std::setfill('0') << std::setw(4) << guesspt.y << ", ";
             double xang = match_angle + home_ang;
             xang = (xang > 360.0) ? xang - 360.0 : xang;
             oss << std::fixed << std::setprecision(1) << xang;
             putText(img_viewer_bgr, oss.str(), { 0, 430 }, FONT_HERSHEY_PLAIN, 2.0, SCA_BLUE, 2);
         }
 
-        {
-            // show where the robot thinks it is relative to current home point
-            // also draw a line showing what robot thinks its orientation is
-            Point p0 = (Point(16,16)-match_offset) * ghnav.get_match_params().acc_div;
-            Point prot;
-            double rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
-            double cos0 = cos(rang_rad);
-            double sin0 = sin(rang_rad);
-            prot.x = static_cast<int>(p0.x * cos0 + p0.y * -sin0);
-            prot.y = static_cast<int>(p0.x * sin0 + p0.y * cos0);
-            Point guesspt = home_pos + prot;
-            circle(img_viewer_bgr, guesspt, 4, SCA_RED, -1);
-            rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
-            int dx = static_cast<int>(cos(rang_rad) * 12);
-            int dy = static_cast<int>(sin(rang_rad) * 12);
-            line(img_viewer_bgr, guesspt, guesspt + Point({ dx, dy }), SCA_RED, 2);
-        }
 
 #ifdef DEMO_IMG_ACC
         // show image of the Hough bins for best match
-        // scale values and equalize to make it pretty
+        // scale values to make it pretty
         Mat img_acc;
         Mat img_acc8;
         Mat img_acc8_bgr;
         normalize(ghnav.m_img_acc, img_acc, 0, 255, cv::NORM_MINMAX);
         img_acc.convertTo(img_acc8, CV_8UC1);
-        equalizeHist(img_acc8, img_acc8);
         cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
-        circle(img_acc8_bgr, ghnav.m_img_acc_pt, 2, { 0,0,255 }, -1);
+        int cx = img_acc8_bgr.size().width / 2;
+        int cy = img_acc8_bgr.size().height / 2;
+        circle(img_acc8_bgr, ghnav.m_img_acc_pt + Point(cx, cy), 2, SCA_RED, -1);
         Rect mroix = { { 25, 460 }, img_acc8_bgr.size() };
         img_acc8_bgr.copyTo(img_viewer_bgr(mroix));
 #endif

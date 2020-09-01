@@ -60,8 +60,8 @@ namespace cpoz
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
                 angcode_ct(8),      // 8 angle codes seems sufficient ???
-                acc_halfdim(80),    // bigger values slow down matching process
-                acc_div(2)          // 2 or 3 seems to help a lot, 4 may be too much ???
+                acc_halfdim(40),    // bigger values will slow down matching process
+                acc_div(2)          // 2 or 3 seems to help, 4 may be too much ???
             {}
         } T_MATCH_PARAMS;
 
