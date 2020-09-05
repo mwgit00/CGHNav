@@ -410,6 +410,7 @@ namespace cpoz
         // create new vote accumulator image
         rimg_acc = Mat::zeros(acc_dim / div, acc_dim / div, CV_16U);
 
+        // do Generalized Hough voting
         for (const auto& rseg : rpreproc.segments)
         {
             for (const auto& rlinept : rseg.lined)
@@ -431,8 +432,8 @@ namespace cpoz
             }
         }
 
-        // finally search for max bin
-        // apply to centering offset to point where max occurs
+        // finally search for bin with max votes
+        // apply centering offset to the point where max occurs
         Point maxpt;
         minMaxLoc(rimg_acc, nullptr, &rmax, nullptr, &maxpt);
         rmaxpt = maxpt - ctr_offset;
