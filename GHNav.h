@@ -60,7 +60,7 @@ namespace cpoz
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
                 angcode_ct(8),      // 8 angle codes seems sufficient ???
-                acc_halfdim(40),    // bigger values will slow down matching process
+                acc_halfdim(60),    // bigger values will slow down matching process
                 acc_div(2)          // 2 or 3 seems to help, 4 may be too much ???
             {}
         } T_MATCH_PARAMS;
@@ -68,9 +68,9 @@ namespace cpoz
 
         typedef struct
         {
-            double angdeg;
-            uint8_t angcode;
-            std::list<cv::Point2d> lined;
+            double angdeg;                  ///< orientation of segment in degrees
+            uint8_t angcode;                ///< orientation of segment as angle code
+            std::list<cv::Point2d> lined;   ///< list of points for line segment
         } T_PREPROC_SEGMENT;
 
 
@@ -83,8 +83,6 @@ namespace cpoz
         
         typedef std::vector<std::vector<cv::Point>> T_TEMPLATE;
 
-        static void plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist);
-        
         
         GHNav();
         virtual ~GHNav();
@@ -151,14 +149,14 @@ namespace cpoz
 
     private:
 
-        T_SCAN_PARAMS m_scan_params;
-        T_MATCH_PARAMS m_match_params;
+        T_SCAN_PARAMS m_scan_params;    ///< all params for doing fake LIDAR scan
+        T_MATCH_PARAMS m_match_params;  ///< all params for Generalized Hough matching
 
-        int m_acc_fulldim;      ///< accumulator bin image size calculated from match params
+        int m_acc_fulldim;          ///< accumulator bin image size calculated from match params
 
-        double m_scan_rng_thr;  ///< "closeness" threshold calculated from scan params
-        double m_cos0;          ///< cos of search angle step
-        double m_sin0;          ///< sin of search angle step
+        double m_scan_rng_thr;      ///< "closeness" threshold calculated from scan params
+        double m_match_step_cos;    ///< cos of search angle step
+        double m_match_step_sin;    ///< sin of search angle step
 
         std::vector<double> m_scan_angs;            ///< ideal scan angles
         std::vector<cv::Point2d> m_scan_cos_sin;    ///< cos and sin for ideal scan angles

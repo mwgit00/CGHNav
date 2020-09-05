@@ -33,6 +33,10 @@ typedef struct
     std::string sname;
 } T_file_info;
 
+bool dir_exists(const std::string& rsdir);
+
+bool create_dir(const std::string& rsdir);
+
 // Get list of all files in a directory that match a pattern
 void get_dir_list(
     const std::string& rsdir,

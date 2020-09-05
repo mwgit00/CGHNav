@@ -42,7 +42,7 @@ namespace cpoz
 
     static double xy_to_360deg(int y, int x)
     {
-        // convert X,Y to angle in degrees (0-360)
+        // convert X,Y to angle in degrees [0,360)
         double angdeg = atan2(y, x) * CONV_RAD2DEG;
         return (angdeg < 0.0) ? angdeg + 360.0 : angdeg;
     }
@@ -59,7 +59,7 @@ namespace cpoz
     }
 
 
-    void GHNav::plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist)
+    static void plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist)
     {
         // Bresenham Line Algorithm from Wikipedia
 
@@ -123,8 +123,8 @@ namespace cpoz
 
         // init the sin and cos for the orientation search step angle
         double angradstep = m_match_params.ang_step * CONV_DEG2RAD;
-        m_cos0 = cos(angradstep);
-        m_sin0 = sin(angradstep);
+        m_match_step_cos = cos(angradstep);
+        m_match_step_sin = sin(angradstep);
     }
 
 
@@ -146,7 +146,7 @@ namespace cpoz
             Point pt0 = vpts[nn];
             Point pt1 = vpts[(nn + 1)];
 
-            /// @TODO -- what about line that connects head to tail ???
+            /// @TODO -- connect head to tail if full 360 scan ???
 
             // the resize factor may make some points equal to one another
             // only proceed if points are not equal
@@ -232,7 +232,8 @@ namespace cpoz
 
         for (auto& r : rpreproc.segments)
         {
-            // rotate segment angle backwards
+            // rotate segment angle BACKWARDS
+            // but make sure it stays in [0,360) range
             r.angdeg -= angdegstep;
             if (r.angdeg < 0.0) r.angdeg += 360.0;
 
@@ -241,12 +242,12 @@ namespace cpoz
             rpreproc.angcode_cts[r.angcode] += r.lined.size();
 
             // then rotate all the segment's line points
-            // about (0,0) by the angle step
+            // about (0,0) by the search angle step
             for (auto& rr : r.lined)
             {
                 Point2d rnew;
-                rnew.x = rr.x * ( m_cos0) + rr.y * (m_sin0);
-                rnew.y = rr.x * (-m_sin0) + rr.y * (m_cos0);
+                rnew.x = rr.x * ( m_match_step_cos) + rr.y * (m_match_step_sin);
+                rnew.y = rr.x * (-m_match_step_sin) + rr.y * (m_match_step_cos);
                 rr = rnew;
             }
         }
@@ -354,9 +355,10 @@ namespace cpoz
         rvpts.resize(rscan.size());
         for (size_t nn = 0; nn < rvpts.size(); nn++)
         {
+            // convert angle and distance to (x,y)
             double mag = rscan[nn];
-            int dx = static_cast<int>((m_scan_cos_sin[nn].x * mag) + 0.5);
-            int dy = static_cast<int>((m_scan_cos_sin[nn].y * mag) + 0.5);
+            int dx = static_cast<int>(round(m_scan_cos_sin[nn].x * mag));
+            int dy = static_cast<int>(round(m_scan_cos_sin[nn].y * mag));
             rvpts[nn] = { dx, dy };
         }
     }
@@ -366,11 +368,12 @@ namespace cpoz
         const T_PREPROC& rpreproc,
         T_TEMPLATE& rtemplate)
     {
-        // create a data index pointer array for each angle code lookup table
+        // each angle code gets its own lookup table
+        // create a data index pointer array the lookup tables
         std::vector<Point*> vppt(m_match_params.angcode_ct);
 
         // use preproc info to allocate template lookup tables
-        // also initialize data index pointers
+        // also initialize the data index pointers
         rtemplate.resize(m_match_params.angcode_ct);
         for (size_t jj = 0; jj < m_match_params.angcode_ct; jj++)
         {
@@ -411,7 +414,9 @@ namespace cpoz
         {
             for (const auto& rlinept : rseg.lined)
             {
-                Point pt = { static_cast<int>(rlinept.x + 0.5), static_cast<int>(rlinept.y + 0.5) };
+                int dx = static_cast<int>(round(rlinept.x));
+                int dy = static_cast<int>(round(rlinept.y));
+                Point pt = { dx, dy };
                 for (const auto& rmatchpt : rtemplate[rseg.angcode])
                 {
                     // translate the vote point and see
@@ -420,19 +425,14 @@ namespace cpoz
                     if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
                         Point e = (votept / div) + ctr_offset;
-                        uint16_t upix = rimg_acc.at<uint16_t>(e) + 1;
-                        rimg_acc.at<uint16_t>(e) = upix;
+                        rimg_acc.at<uint16_t>(e)++;
                     }
                 }
             }
         }
 
-        // blur the heck out of the bins ???
-        // there should be one obvious max and blurring should help find it
-        GaussianBlur(rimg_acc, rimg_acc, { 13, 13 }, 0, 0);
-
-        // finally search for max in bin
-        // apply to (0,0) offset to point with max
+        // finally search for max bin
+        // apply to centering offset to point where max occurs
         Point maxpt;
         minMaxLoc(rimg_acc, nullptr, &rmax, nullptr, &maxpt);
         rmaxpt = maxpt - ctr_offset;

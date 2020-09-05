@@ -40,8 +40,7 @@
 using namespace cv;
 
 
-#define MOVIE_PATH  ".\\movie\\"    // user may need to create or change this
-#define DATA_PATH   ".\\data\\"     // user may need to change this
+#define MOVIE_PATH_PREFIX   ".\\movie_"
 
 #define SCA_BLACK   (cv::Scalar(0,0,0))
 #define SCA_RED     (cv::Scalar(0,0,255))
@@ -61,7 +60,7 @@ const double avel3 = 4 * vspinfac;
 const double avel4 = 7 * vspinfac;
 const double avelf = 1.6;
 
-static int g_frame_ct = 0;
+static int g_fps_ct = 0;
 static int g_fps = 0;
 
 static bool is_rec_enabled = false;
@@ -69,7 +68,9 @@ static bool is_loc_enabled = false;
 static bool is_resync = true;   // resync map (do on first iteration)
 static bool is_rehome = true;   // new position (do on first iteration)
 const char* stitle = "CGHNav Test Application";
-int n_record_ctr = 0;
+static int g_movie_ctr = 0;
+static int g_record_ctr = 0;
+static std::string g_sdir;
 
 cpoz::FakeLidar theLidar;
 cpoz::FakeRobot theRobot;
@@ -95,7 +96,28 @@ bool wait_and_check_keys(const int delay_ms = 1)
         {
             switch (ckey)
             {
-            case 'r': is_rec_enabled = !is_rec_enabled; break;
+            case 'r':
+            {
+                is_rec_enabled = !is_rec_enabled;
+                if (is_rec_enabled)
+                {
+                    // recording has been turned on
+                    g_movie_ctr++;
+                    g_record_ctr = 0;
+                    
+                    std::ostringstream osx;
+                    osx << MOVIE_PATH_PREFIX;
+                    osx << std::setfill('0') << std::setw(2) << g_movie_ctr;
+                    osx << "\\";
+                    g_sdir = osx.str();
+                    if (!(dir_exists(g_sdir)))
+                    {
+                        // create it
+                        (void)create_dir(g_sdir);
+                    }
+                }
+                break;
+            }
             case '1':
             {
                 // noiseless LIDAR
@@ -185,9 +207,11 @@ void image_output(cv::Mat& rimg)
         rectangle(rimg, { x, 0, x + 20, 20 }, sca, -1);
 
         std::ostringstream osx;
-        osx << MOVIE_PATH << "img_" << std::setfill('0') << std::setw(5) << n_record_ctr << ".png";
-        imwrite(osx.str(), rimg);
-        n_record_ctr++;
+        osx << "img_" << std::setfill('0') << std::setw(5) << g_record_ctr << ".png";
+
+        std::string sframe = g_sdir + osx.str();
+        imwrite(sframe, rimg);
+        g_record_ctr++;
     }
 
     imshow(stitle, rimg);
@@ -236,10 +260,10 @@ void loop(void)
         size_t ts = std::chrono::duration_cast<std::chrono::seconds>(t_now - t_start).count();
         if (ts != ts_prev)
         {
-            g_fps = g_frame_ct;
-            g_frame_ct = 0;
+            g_fps = g_fps_ct;
+            g_fps_ct = 0;
         }
-        g_frame_ct++;
+        g_fps_ct++;
         ts_prev = ts;
 
         // handle keyboard events and end when ESC is pressed
@@ -369,19 +393,21 @@ void loop(void)
 
 
 #ifdef DEMO_IMG_ACC
-        // show image of the Hough bins for best match
-        // scale values to make it pretty
+        // show image of the Hough bins for best orientation match
+        // normalize values and enlarge for better visualization
         Mat img_acc;
         Mat img_acc8;
         Mat img_acc8_bgr;
+        Mat img_acc8_bgr_big;
         normalize(ghnav.m_img_acc, img_acc, 0, 255, cv::NORM_MINMAX);
         img_acc.convertTo(img_acc8, CV_8UC1);
         cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
         int cx = img_acc8_bgr.size().width / 2;
         int cy = img_acc8_bgr.size().height / 2;
         circle(img_acc8_bgr, ghnav.m_img_acc_pt + Point(cx, cy), 2, SCA_RED, -1);
-        Rect mroix = { { 25, 460 }, img_acc8_bgr.size() };
-        img_acc8_bgr.copyTo(img_viewer_bgr(mroix));
+        resize(img_acc8_bgr, img_acc8_bgr_big, {}, 3.0, 3.0);
+        Rect mroix = { { 25, 460 }, img_acc8_bgr_big.size() };
+        img_acc8_bgr_big.copyTo(img_viewer_bgr(mroix));
 #endif
 
         // show the BGR image

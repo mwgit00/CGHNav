@@ -34,6 +34,30 @@
 #include "util.h"
 
 
+bool dir_exists(const std::string& rsdir)
+{
+    bool result = false;
+    DWORD ftyp = GetFileAttributesA(rsdir.c_str());
+    if (ftyp == INVALID_FILE_ATTRIBUTES)
+    {
+        // bad path
+    }
+    else if (ftyp & FILE_ATTRIBUTE_DIRECTORY)
+    {
+        result = true;
+    }
+    return result;
+}
+
+
+bool create_dir(const std::string& rsdir)
+{
+    bool result = false;
+    result = static_cast<bool>(CreateDirectoryA(rsdir.c_str(), NULL));
+    return result;
+}
+
+
 void get_dir_list(
     const std::string& rsdir,
     const std::string& rspattern,
