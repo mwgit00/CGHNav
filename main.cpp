@@ -424,8 +424,9 @@ int main()
     std::cout << stitle << std::endl;
 #if 0
     std::list<std::string> lfiles;
-    get_dir_list(MOVIE_PATH, "*.png", lfiles);
-    make_video(20, MOVIE_PATH, "demo.mov", VideoWriter::fourcc('m', 'p', '4', 'v'), lfiles);
+    std::string spath = ".\\movie_01\\";
+    get_dir_list(spath, "*.png", lfiles);
+    make_video(20, spath, "demo_01.mov", VideoWriter::fourcc('m', 'p', '4', 'v'), lfiles);
 #else
     loop();
 #endif
