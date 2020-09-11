@@ -121,6 +121,7 @@ namespace cpoz
         // then they are likely not on the same surface and can be ignored
         // the threshold is distance between two measurements at max LIDAR range
         m_scan_rng_thr = m_scan_params.max_rng * tan(m_scan_params.ang_step * CONV_DEG2RAD);
+        m_scan_rng_thr = m_match_params.prescale * m_scan_rng_thr;
 
         // init the sin and cos for the orientation search step angle
         double angradstep = m_match_params.ang_step * CONV_DEG2RAD;

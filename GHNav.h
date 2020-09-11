@@ -57,11 +57,11 @@ namespace cpoz
             uint8_t angcode_ct;     ///< number of angle codes to use
             int acc_halfdim;        ///< half dimension of Hough accumulator bin image
             _T_MATCH_PARAMS_struct() :
-                prescale(0.25),     // don't go lower than 0.25
+                prescale(0.5),      // don't go lower than this
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
                 angcode_ct(8),      // 8 angle codes seems sufficient
-                acc_halfdim(20)     // keep within a few robot widths
+                acc_halfdim(30)     // keep within a few robot widths
             {}
         } T_MATCH_PARAMS;
 
