@@ -51,17 +51,17 @@ namespace cpoz
 
         typedef struct _T_MATCH_PARAMS_struct
         {
+            double prescale;        ///< scale factor applied to scans/templates
             int ang_ct;             ///< number of angles in 360 degree search
             double ang_step;        ///< angle step in 360 degree search
             uint8_t angcode_ct;     ///< number of angle codes to use
             int acc_halfdim;        ///< half dimension of Hough accumulator bin image
-            int acc_div;            ///< bin downsizing divider
             _T_MATCH_PARAMS_struct() :
+                prescale(0.25),     // don't go lower than 0.25
                 ang_ct(360),        // search through full 360 degrees
                 ang_step(1.0),      // 1 degree between each search step
-                angcode_ct(8),      // 8 angle codes seems sufficient ???
-                acc_halfdim(60),    // bigger values will slow down matching process
-                acc_div(2)          // 2 or 3 seems to help, 4 may be too much ???
+                angcode_ct(8),      // 8 angle codes seems sufficient
+                acc_halfdim(20)     // keep within a few robot widths
             {}
         } T_MATCH_PARAMS;
 
@@ -81,7 +81,7 @@ namespace cpoz
         } T_PREPROC;
 
         
-        typedef std::vector<std::vector<cv::Point>> T_TEMPLATE;
+        typedef std::vector<std::vector<cv::Point2d>> T_TEMPLATE;
 
         
         GHNav();
@@ -123,7 +123,8 @@ namespace cpoz
 
         void convert_scan_to_pts(
             const std::vector<double>& rscan,
-            std::vector<cv::Point>& rvec);
+            std::vector<cv::Point>& rvec,
+            const double resize);
 
         void create_template(
             const T_PREPROC& rpreproc,
@@ -134,7 +135,6 @@ namespace cpoz
             const T_TEMPLATE& rtemplate,
             const int acc_dim,
             const int acc_halfdim,
-            const int div,
             cv::Mat& rimg_acc,
             cv::Point& rmaxpt,
             double& rmax);

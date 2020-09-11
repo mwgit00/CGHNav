@@ -114,7 +114,8 @@ namespace cpoz
         init_scan_angs();
 
         // init full width/height of accumulator image for angle search
-        m_acc_fulldim = (m_match_params.acc_halfdim * 2) + 1;
+        // add 2 to prevent any out-of-bounds problems with rounding coordinates
+        m_acc_fulldim = (m_match_params.acc_halfdim * 2) + 2;
 
         // if adjacent measurements are too far from each other
         // then they are likely not on the same surface and can be ignored
@@ -133,7 +134,7 @@ namespace cpoz
         T_PREPROC& rpreproc)
     {
         std::vector<Point> vpts;
-        convert_scan_to_pts(rscan, vpts);
+        convert_scan_to_pts(rscan, vpts, m_match_params.prescale);
 
         rpreproc.angcode_cts.clear();
         rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
@@ -148,7 +149,7 @@ namespace cpoz
 
             /// @TODO -- connect head to tail if full 360 scan ???
 
-            // the resize factor may make some points equal to one another
+            // the scale factor may make some points equal to one another
             // only proceed if points are not equal
             if (pt0 != pt1)
             {
@@ -159,7 +160,6 @@ namespace cpoz
                     // points meet the closeness criteria
                     // so create a line from pt0 to pt1
                     // and fill in angle info
-                    
                     double angdeg = xy_to_360deg(diffpt.y, diffpt.x);
                     uint8_t angcode = encode_ang(angdeg, m_match_params.angcode_ct);
                     
@@ -167,11 +167,21 @@ namespace cpoz
                     rpreproc.segments.back().angdeg = angdeg;
                     rpreproc.segments.back().angcode = angcode;
 
+                    // create a line between the points
+                    // but it is only used to get the number of "pixel" points to use
+                    // when generating a true straight line between the points
                     std::list<Point> temp_line;
                     plot_line(pt0, pt1, temp_line);
+                    
+                    // generate line with real valued X,Y points between pt0 and pt1
+                    double dsz = static_cast<double>(temp_line.size());
+                    double dzx = diffpt.x / dsz;
+                    double dzy = diffpt.y / dsz;
+                    Point2d zpt = pt0;
                     for (const auto& r : temp_line)
                     {
-                        rpreproc.segments.back().lined.push_back(r);
+                        rpreproc.segments.back().lined.push_back(zpt);
+                        zpt += {dzx, dzy};
                     }
                     
                     rpreproc.angcode_cts[angcode] += rpreproc.segments.back().lined.size();
@@ -304,7 +314,7 @@ namespace cpoz
                 preproc,
                 m_vtemplates[ii],
                 m_acc_fulldim,
-                m_match_params.acc_halfdim, m_match_params.acc_div,
+                m_match_params.acc_halfdim,
                 img_acc, qmaxpt, qmax);
 
             if (qmax > qallmax)
@@ -350,13 +360,14 @@ namespace cpoz
 
     void GHNav::convert_scan_to_pts(
         const std::vector<double>& rscan,
-        std::vector<cv::Point>& rvpts)
+        std::vector<cv::Point>& rvpts,
+        const double resize)
     {
         rvpts.resize(rscan.size());
         for (size_t nn = 0; nn < rvpts.size(); nn++)
         {
             // convert angle and distance to (x,y)
-            double mag = rscan[nn];
+            double mag = rscan[nn] * resize;
             int dx = static_cast<int>(round(m_scan_cos_sin[nn].x * mag));
             int dy = static_cast<int>(round(m_scan_cos_sin[nn].y * mag));
             rvpts[nn] = { dx, dy };
@@ -370,7 +381,7 @@ namespace cpoz
     {
         // each angle code gets its own lookup table
         // create a data index pointer array the lookup tables
-        std::vector<Point*> vppt(m_match_params.angcode_ct);
+        std::vector<Point2d*> vppt(m_match_params.angcode_ct);
 
         // use preproc info to allocate template lookup tables
         // also initialize the data index pointers
@@ -400,32 +411,33 @@ namespace cpoz
         const T_TEMPLATE& rtemplate,
         const int acc_dim,
         const int acc_halfdim,
-        const int div,
         cv::Mat& rimg_acc,
         cv::Point& rmaxpt,
         double& rmax)
     {
-        const Point ctr_offset = { acc_halfdim / div, acc_halfdim / div };
+        const Point ctr_offset = { acc_halfdim, acc_halfdim };
 
         // create new vote accumulator image
-        rimg_acc = Mat::zeros(acc_dim / div, acc_dim / div, CV_16U);
+        rimg_acc = Mat::zeros(acc_dim, acc_dim, CV_16U);
 
         // do Generalized Hough voting
         for (const auto& rseg : rpreproc.segments)
         {
             for (const auto& rlinept : rseg.lined)
             {
-                int dx = static_cast<int>(round(rlinept.x));
-                int dy = static_cast<int>(round(rlinept.y));
-                Point pt = { dx, dy };
                 for (const auto& rmatchpt : rtemplate[rseg.angcode])
                 {
                     // translate the vote point and see
                     // if it falls in accumulator image
-                    Point votept = pt - rmatchpt;
+                    Point2d votept = rlinept - rmatchpt;
                     if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
-                        Point e = (votept / div) + ctr_offset;
+                        // round op is SLOW but helps eliminate the jitter
+                        // that seems to be caused by excessive use of integer point structures
+                        int dx = static_cast<int>(round(votept.x));
+                        int dy = static_cast<int>(round(votept.y));
+                        Point pt = { dx, dy };
+                        Point e = (pt)+ctr_offset;
                         rimg_acc.at<uint16_t>(e)++;
                     }
                 }

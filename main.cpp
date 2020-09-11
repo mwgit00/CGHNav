@@ -305,8 +305,14 @@ void loop(void)
         }
 
         // check match against the current waypoint
-        int ia = static_cast<int>(match_angle);
-        ghnav.perform_match(theLidar.get_last_scan(), -10 + ia, 10 + ia, match_offset, match_angle);
+        // but limit orientation search to a small range around last match angle
+        int search_deg = 10;
+        int imatchang = static_cast<int>(match_angle);
+        ghnav.perform_match(
+            theLidar.get_last_scan(),
+            imatchang - search_deg,
+            imatchang + search_deg,
+            match_offset, match_angle);
 
         // now update the screen view...
         
@@ -320,7 +326,7 @@ void loop(void)
         // draw shrunken "snapshot" image of current LIDAR scan (gray)
         Mat img_current_scan;
         Point img_current_scan_pt0;
-        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc, 3);
+        ghnav.draw_preprocessed_scan(img_current_scan, img_current_scan_pt0, preproc, 2);
         Rect mroi = { {0,0}, img_current_scan.size() };
         img_current_scan.copyTo(img_viewer(mroi));
 
@@ -355,7 +361,7 @@ void loop(void)
 
         // show where the robot thinks it is relative to current home point
         // also draw a line showing what robot thinks its orientation is
-        Point p0 = (-match_offset) * ghnav.get_match_params().acc_div;
+        Point p0 = (-match_offset) / ghnav.get_match_params().prescale;
         Point prot;
         double rang_rad = (home_ang + match_angle) * CV_PI / 180.0;
         double cos0 = cos(rang_rad);
@@ -401,11 +407,15 @@ void loop(void)
         Mat img_acc8_bgr_big;
         normalize(ghnav.m_img_acc, img_acc, 0, 255, cv::NORM_MINMAX);
         img_acc.convertTo(img_acc8, CV_8UC1);
+#if 0
+        // enable this to see more structure in Hough bins
+        equalizeHist(img_acc8, img_acc8);
+#endif
         cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
         int cx = img_acc8_bgr.size().width / 2;
         int cy = img_acc8_bgr.size().height / 2;
         circle(img_acc8_bgr, ghnav.m_img_acc_pt + Point(cx, cy), 2, SCA_RED, -1);
-        resize(img_acc8_bgr, img_acc8_bgr_big, {}, 3.0, 3.0);
+        resize(img_acc8_bgr, img_acc8_bgr_big, {}, 2.0, 2.0);
         Rect mroix = { { 25, 460 }, img_acc8_bgr_big.size() };
         img_acc8_bgr_big.copyTo(img_viewer_bgr(mroix));
 #endif
