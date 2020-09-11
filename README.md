@@ -7,7 +7,7 @@ with a LIDAR.  It can roll around in a room based on user key presses.
 
 The Generalized Hough Transform is used to match the robot's current LIDAR scan
 with a scan taken previously at a waypoint.  A template is generated for a range
-of angles about each waypoint.  Typically there are 360 templates 1 for each
+of angles about each waypoint.  Typically there are 360 templates; 1 for each
 degree in the range 0 to 359.  The robot searches the templates to determine
 a best guess for its current orientation and translation from the waypoint.
 
