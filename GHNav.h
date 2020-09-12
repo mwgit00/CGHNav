@@ -58,8 +58,8 @@ namespace cpoz
             int acc_halfdim;        ///< half dimension of Hough accumulator bin image
             _T_MATCH_PARAMS_struct() :
                 prescale(0.5),      // don't go lower than this
-                ang_ct(360),        // search through full 360 degrees
-                ang_step(1.0),      // 1 degree between each search step
+                ang_ct(360),        // 360 angle templates at each waypoint
+                ang_step(1.0),      // 1 degree between each angle template
                 angcode_ct(8),      // 8 angle codes seems sufficient
                 acc_halfdim(30)     // keep within a few robot widths
             {}
@@ -104,10 +104,6 @@ namespace cpoz
             const GHNav::T_PREPROC& rpreproc,
             const int shrink);
 
-        void rotate_preprocessed_scan(
-            GHNav::T_PREPROC& rpreproc,
-            const double angdegstep);
-
         void update_match_templates(const std::vector<double>& rscan);
 
         void perform_match(
@@ -126,6 +122,8 @@ namespace cpoz
             std::vector<cv::Point>& rvec,
             const double resize);
 
+        void rotate_preprocessed_scan(GHNav::T_PREPROC& rpreproc);
+
         void create_template(
             const T_PREPROC& rpreproc,
             T_TEMPLATE& rtemplate);
@@ -133,8 +131,6 @@ namespace cpoz
         void match_single_template(
             const T_PREPROC& rpreproc,
             const T_TEMPLATE& rtemplate,
-            const int acc_dim,
-            const int acc_halfdim,
             cv::Mat& rimg_acc,
             cv::Point& rmaxpt,
             double& rmax);
@@ -155,12 +151,11 @@ namespace cpoz
         int m_acc_fulldim;          ///< accumulator bin image size calculated from match params
 
         double m_scan_rng_thr;      ///< "closeness" threshold calculated from scan params
-        double m_match_step_cos;    ///< cos of search angle step
-        double m_match_step_sin;    ///< sin of search angle step
+        double m_match_step_cos;    ///< cos of search params angle step
+        double m_match_step_sin;    ///< sin of search params angle step
 
         std::vector<double> m_scan_angs;            ///< ideal scan angles
         std::vector<cv::Point2d> m_scan_cos_sin;    ///< cos and sin for ideal scan angles
-
         std::vector<T_TEMPLATE> m_vtemplates;       ///< templates for orientation search
     };
 }

@@ -59,44 +59,6 @@ namespace cpoz
     }
 
 
-    static void plot_line(const cv::Point& pt0, const cv::Point& pt1, std::list<cv::Point>& rlist)
-    {
-        // Bresenham Line Algorithm from Wikipedia
-
-        int dx = abs(pt1.x - pt0.x);
-        int sx = (pt0.x < pt1.x) ? 1 : -1;
-        int dy = -abs(pt1.y - pt0.y);
-        int sy = (pt0.y < pt1.y) ? 1 : -1;
-        int err = dx + dy;  // error value e_xy
-
-        cv::Point pt = pt0;
-
-        while (pt != pt1)
-        {
-            rlist.push_back(pt);
-
-            int e2 = 2 * err;
-            if (e2 >= dy)
-            {
-                // e_xy+e_x > 0
-                err += dy;
-                pt.x += sx;
-            }
-            if (e2 <= dx)
-            {
-                // e_xy+e_y < 0
-                err += dx;
-                pt.y += sy;
-            }
-        }
-
-#if 0
-        // pt1 can be appended here if desired
-        rlist.push_back(pt1);
-#endif
-    }
-
-
     GHNav::GHNav()
     {
         init();
@@ -148,8 +110,6 @@ namespace cpoz
             Point pt0 = vpts[nn];
             Point pt1 = vpts[(nn + 1)];
 
-            /// @TODO -- connect head to tail if full 360 scan ???
-
             // the scale factor may make some points equal to one another
             // only proceed if points are not equal
             if (pt0 != pt1)
@@ -168,23 +128,21 @@ namespace cpoz
                     rpreproc.segments.back().angdeg = angdeg;
                     rpreproc.segments.back().angcode = angcode;
 
-                    // create a line between the points
-                    // but it is only used to get the number of "pixel" points to use
-                    // when generating a true straight line between the points
-                    std::list<Point> temp_line;
-                    plot_line(pt0, pt1, temp_line);
-                    
                     // generate line with real valued X,Y points between pt0 and pt1
-                    double dsz = static_cast<double>(temp_line.size());
-                    double dzx = diffpt.x / dsz;
-                    double dzy = diffpt.y / dsz;
+                    // points are not equal so at least one segment point will be generated
+                    int isz = max(abs(diffpt.x), abs(diffpt.y));
+                    double dsz = 1.0 / static_cast<double>(isz);
+                    double dzx = diffpt.x * dsz;
+                    double dzy = diffpt.y * dsz;
                     Point2d zpt = pt0;
-                    for (const auto& r : temp_line)
+                    for (int ii = 0; ii < isz; ii++)
                     {
                         rpreproc.segments.back().lined.push_back(zpt);
                         zpt += {dzx, dzy};
                     }
-                    
+
+                    // tally total number of occurrences of this angle code
+                    // it will be used later for allocating array for Hough table
                     rpreproc.angcode_cts[angcode] += rpreproc.segments.back().lined.size();
                 }
             }
@@ -233,38 +191,6 @@ namespace cpoz
     }
 
 
-    void GHNav::rotate_preprocessed_scan(
-        GHNav::T_PREPROC& rpreproc,
-        const double angdegstep)
-
-    {
-        rpreproc.angcode_cts.clear();
-        rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
-
-        for (auto& r : rpreproc.segments)
-        {
-            // rotate segment angle BACKWARDS
-            // but make sure it stays in [0,360) range
-            r.angdeg -= angdegstep;
-            if (r.angdeg < 0.0) r.angdeg += 360.0;
-
-            // then convert it to angle code
-            r.angcode = encode_ang(r.angdeg, m_match_params.angcode_ct);
-            rpreproc.angcode_cts[r.angcode] += r.lined.size();
-
-            // then rotate all the segment's line points
-            // about (0,0) by the search angle step
-            for (auto& rr : r.lined)
-            {
-                Point2d rnew;
-                rnew.x = rr.x * ( m_match_step_cos) + rr.y * (m_match_step_sin);
-                rnew.y = rr.x * (-m_match_step_sin) + rr.y * (m_match_step_cos);
-                rr = rnew;
-            }
-        }
-    }
-
-
     void GHNav::update_match_templates(const std::vector<double>& rscan)
     {
         T_PREPROC preproc;
@@ -278,7 +204,7 @@ namespace cpoz
             // make a template for it
             // rotate the preprocessed scan by one angle step
             create_template(preproc, m_vtemplates[ii]);
-            rotate_preprocessed_scan(preproc, m_match_params.ang_step);
+            rotate_preprocessed_scan(preproc);
         }
     }
 
@@ -314,8 +240,6 @@ namespace cpoz
             match_single_template(
                 preproc,
                 m_vtemplates[ii],
-                m_acc_fulldim,
-                m_match_params.acc_halfdim,
                 img_acc, qmaxpt, qmax);
 
             if (qmax > qallmax)
@@ -376,6 +300,35 @@ namespace cpoz
     }
 
 
+    void GHNav::rotate_preprocessed_scan(GHNav::T_PREPROC& rpreproc)
+    {
+        rpreproc.angcode_cts.clear();
+        rpreproc.angcode_cts.resize(m_match_params.angcode_ct);
+
+        for (auto& r : rpreproc.segments)
+        {
+            // rotate segment angle BACKWARDS
+            // but make sure it stays in [0,360) range
+            r.angdeg -= m_match_params.ang_step;
+            if (r.angdeg < 0.0) r.angdeg += 360.0;
+
+            // then convert it to angle code
+            r.angcode = encode_ang(r.angdeg, m_match_params.angcode_ct);
+            rpreproc.angcode_cts[r.angcode] += r.lined.size();
+
+            // then rotate all the segment's line points
+            // about (0,0) by the search angle step
+            for (auto& rr : r.lined)
+            {
+                Point2d rnew;
+                rnew.x = rr.x * (m_match_step_cos) + rr.y * (m_match_step_sin);
+                rnew.y = rr.x * (-m_match_step_sin) + rr.y * (m_match_step_cos);
+                rr = rnew;
+            }
+        }
+    }
+
+
     void GHNav::create_template(
         const T_PREPROC& rpreproc,
         T_TEMPLATE& rtemplate)
@@ -410,16 +363,15 @@ namespace cpoz
     void GHNav::match_single_template(
         const T_PREPROC& rpreproc,
         const T_TEMPLATE& rtemplate,
-        const int acc_dim,
-        const int acc_halfdim,
         cv::Mat& rimg_acc,
         cv::Point& rmaxpt,
         double& rmax)
     {
+        const int acc_halfdim = m_match_params.acc_halfdim;
         const Point ctr_offset = { acc_halfdim, acc_halfdim };
 
         // create new vote accumulator image
-        rimg_acc = Mat::zeros(acc_dim, acc_dim, CV_16U);
+        rimg_acc = Mat::zeros(m_acc_fulldim, m_acc_fulldim, CV_16U);
 
         // do Generalized Hough voting
         for (const auto& rseg : rpreproc.segments)
@@ -433,13 +385,14 @@ namespace cpoz
                     Point2d votept = rlinept - rmatchpt;
                     if ((abs(votept.x) < acc_halfdim) && (abs(votept.y) < acc_halfdim))
                     {
-                        // round op is SLOW but helps eliminate the jitter
-                        // that seems to be caused by excessive use of integer point structures
+                        // tally the vote
+                        // rounding is SLOW but helps eliminate the jitter that
+                        // seems to be caused by excessive use of integer point structures
                         int dx = static_cast<int>(round(votept.x));
                         int dy = static_cast<int>(round(votept.y));
                         Point pt = { dx, dy };
-                        Point e = (pt)+ctr_offset;
-                        rimg_acc.at<uint16_t>(e)++;
+                        Point ptacc = pt + ctr_offset;
+                        rimg_acc.at<uint16_t>(ptacc)++;
                     }
                 }
             }

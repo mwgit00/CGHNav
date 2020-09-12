@@ -414,8 +414,17 @@ void loop(void)
         cvtColor(img_acc8, img_acc8_bgr, COLOR_GRAY2BGR);
         int cx = img_acc8_bgr.size().width / 2;
         int cy = img_acc8_bgr.size().height / 2;
-        circle(img_acc8_bgr, ghnav.m_img_acc_pt + Point(cx, cy), 2, SCA_RED, -1);
-        resize(img_acc8_bgr, img_acc8_bgr_big, {}, 2.0, 2.0);
+#if 1
+        // draw circle at max
+        circle(img_acc8_bgr, ghnav.m_img_acc_pt + Point(cx - 1, cy - 1), 2, SCA_RED, -1);
+#else
+        // draw multiple max regions
+        std::vector<std::vector<cv::Point>> contours;
+        Mat match_mask = (img_acc > 240);
+        findContours(match_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
+        drawContours(img_acc8_bgr, contours, -1, SCA_RED, -1, LINE_8, noArray(), INT_MAX);
+#endif
+        resize(img_acc8_bgr, img_acc8_bgr_big, {}, 3.0, 3.0);
         Rect mroix = { { 25, 460 }, img_acc8_bgr_big.size() };
         img_acc8_bgr_big.copyTo(img_viewer_bgr(mroix));
 #endif
