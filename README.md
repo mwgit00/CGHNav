@@ -15,3 +15,7 @@ This code could be the "front end" for a SLAM algorithm.
 
 The code has been tested with OpenCV 4.3.0 on a Windows 10 machine with
 Community Edition of Visual Studio 2019.
+
+Click the image to see a YouTube demo video:
+
+[![CGHNav Demo Video](http://img.youtube.com/vi/jNoWSvQfcbc/0.jpg)](http://www.youtube.com/watch?v=jNoWSvQfcbc)
